@@ -899,7 +899,7 @@ static void load_elf_image(const char *image_name, int image_fd,
             abi_ulong vaddr, vaddr_po, vaddr_ps, vaddr_ef, vaddr_em;
             int elf_prot = 0;
 
-			if (eppnt->p_memsz == 0 || eppnt->p_filesz == 0) continue;
+			if (eppnt->p_memsz == 0 && eppnt->p_filesz == 0) continue;
 
             if (eppnt->p_flags & PF_R) elf_prot =  PROT_READ;
             if (eppnt->p_flags & PF_W) elf_prot |= PROT_WRITE;
