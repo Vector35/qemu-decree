@@ -192,7 +192,14 @@ int cpu_signal_handler(int host_signum, void *pinfo,
 
 #elif defined(__x86_64__)
 
-#ifdef __NetBSD__
+#if defined(__APPLE__)
+#include <sys/ucontext.h>
+
+#define PC_sig(context)  (*((unsigned long *)&(context)->uc_mcontext->__ss.__rip))
+#define TRAP_sig(context)    ((context)->uc_mcontext->__es.__trapno)
+#define ERROR_sig(context)   ((context)->uc_mcontext->__es.__err)
+#define MASK_sig(context)    ((context)->uc_sigmask)
+#elif defined(__NetBSD__)
 #define PC_sig(context)       _UC_MACHINE_PC(context)
 #define TRAP_sig(context)     ((context)->uc_mcontext.__gregs[_REG_TRAPNO])
 #define ERROR_sig(context)    ((context)->uc_mcontext.__gregs[_REG_ERR])
@@ -221,7 +228,7 @@ int cpu_signal_handler(int host_signum, void *pinfo,
 {
     siginfo_t *info = pinfo;
     unsigned long pc;
-#if defined(__NetBSD__) || defined(__FreeBSD__) || defined(__DragonFly__)
+#if defined(__NetBSD__) || defined(__FreeBSD__) || defined(__DragonFly__) || defined(__APPLE__)
     ucontext_t *uc = puc;
 #elif defined(__OpenBSD__)
     struct sigcontext *uc = puc;

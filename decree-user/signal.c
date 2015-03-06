@@ -32,6 +32,11 @@
 
 //#define DEBUG_SIGNAL
 
+#ifndef _NSIG
+/* Hack for compiling on Mac */
+#define _NSIG 65
+#endif
+
 static struct target_sigaction sigact_table[TARGET_NSIG];
 
 static void host_signal_handler(int host_signum, siginfo_t *info,
@@ -70,15 +75,21 @@ static uint8_t host_to_target_signal_table[_NSIG] = {
     [SIGPROF] = TARGET_SIGPROF,
     [SIGWINCH] = TARGET_SIGWINCH,
     [SIGIO] = TARGET_SIGIO,
+#ifdef SIGPWR
     [SIGPWR] = TARGET_SIGPWR,
+#endif
     [SIGSYS] = TARGET_SIGSYS,
     /* next signals stay the same */
     /* Nasty hack: Reverse SIGRTMIN and SIGRTMAX to avoid overlap with
        host libpthread signals.  This assumes no one actually uses SIGRTMAX :-/
        To fix this properly we need to do manual signal delivery multiplexed
        over a single host signal.  */
+#ifdef __SIGRTMAX
     [__SIGRTMIN] = __SIGRTMAX,
+#endif
+#ifdef __SIGRTMIN
     [__SIGRTMAX] = __SIGRTMIN,
+#endif
 };
 static uint8_t target_to_host_signal_table[_NSIG];
 
@@ -245,14 +256,14 @@ static inline void host_to_target_siginfo_noswap(target_siginfo_t *tinfo,
         tinfo->_sifields._sigfault._addr = 0;
     } else if (sig == TARGET_SIGIO) {
         tinfo->_sifields._sigpoll._band = info->si_band;
-	tinfo->_sifields._sigpoll._fd = info->si_fd;
+        /* tinfo->_sifields._sigpoll._fd = info->si_fd; */
     } else if (sig == TARGET_SIGCHLD) {
         tinfo->_sifields._sigchld._pid = info->si_pid;
         tinfo->_sifields._sigchld._uid = info->si_uid;
         /* tinfo->_sifields._sigchld._status */
         /*     = host_to_target_waitstatus(info->si_status); */
-        tinfo->_sifields._sigchld._utime = info->si_utime;
-        tinfo->_sifields._sigchld._stime = info->si_stime;
+        /* tinfo->_sifields._sigchld._utime = info->si_utime; */
+        /* tinfo->_sifields._sigchld._stime = info->si_stime; */
     } else if (sig >= TARGET_SIGRTMIN) {
         tinfo->_sifields._rt._pid = info->si_pid;
         tinfo->_sifields._rt._uid = info->si_uid;

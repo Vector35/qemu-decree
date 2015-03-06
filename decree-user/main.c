@@ -276,8 +276,7 @@ void cpu_loop(CPUX86State *env)
                                           env->regs[R_EDX],
                                           env->regs[R_ESI],
                                           env->regs[R_EDI],
-                                          env->regs[R_EBP],
-                                          0, 0);
+                                          env->regs[R_EBP]);
             break;
         case EXCP_SYSCALL:
             info.si_signo = TARGET_SIGILL;
@@ -794,7 +793,7 @@ static int parse_args(int argc, char **argv)
     return optind;
 }
 
-int main(int argc, char **argv, char **envp)
+int main(int argc, char **argv)
 {
     struct target_pt_regs regs1, *regs = &regs1;
     struct image_info info1, *info = &info1;
@@ -803,7 +802,6 @@ int main(int argc, char **argv, char **envp)
     CPUArchState *env;
     CPUState *cpu;
     int optind;
-    char **target_environ, **wrk;
     char **target_argv;
     int target_argc;
     int i;
@@ -811,16 +809,6 @@ int main(int argc, char **argv, char **envp)
     int execfd;
 
     module_call_init(MODULE_INIT_QOM);
-
-    if ((envlist = envlist_create()) == NULL) {
-        (void) fprintf(stderr, "Unable to allocate envlist\n");
-        exit(1);
-    }
-
-    /* add current environment into the list */
-    for (wrk = environ; *wrk != NULL; wrk++) {
-        (void) envlist_setenv(envlist, *wrk);
-    }
 
     /* Read the stack limit from the kernel.  If it's "unlimited",
        then we can do little else besides use the default.  */
@@ -881,9 +869,6 @@ int main(int argc, char **argv, char **envp)
     if (getenv("QEMU_RAND_SEED")) {
         handle_arg_randseed(getenv("QEMU_RAND_SEED"));
     }
-
-    target_environ = envlist_to_environ(envlist, NULL);
-    envlist_free(envlist);
 
 #if defined(CONFIG_USE_GUEST_BASE)
     /*
@@ -967,18 +952,12 @@ int main(int argc, char **argv, char **envp)
         }
     }
 
-    ret = loader_exec(execfd, filename, target_argv, target_environ, regs,
+    ret = loader_exec(execfd, filename, target_argv, regs,
         info, &bprm);
     if (ret != 0) {
         printf("Error while loading %s: %s\n", filename, strerror(-ret));
         _exit(1);
     }
-
-    for (wrk = target_environ; *wrk; wrk++) {
-        free(*wrk);
-    }
-
-    free(target_environ);
 
     if (qemu_log_enabled()) {
 #if defined(CONFIG_USE_GUEST_BASE)

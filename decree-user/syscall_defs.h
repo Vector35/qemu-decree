@@ -2525,7 +2525,7 @@ struct target_sigevent {
         int32_t _tid;
 
         struct {
-            void (*_function)(sigval_t);
+            void (*_function)(target_sigval_t);
             void *_attribute;
         } _sigev_thread;
     } _sigev_un;

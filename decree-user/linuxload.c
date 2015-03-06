@@ -85,52 +85,7 @@ static int prepare_binprm(struct linux_binprm *bprm)
     return retval;
 }
 
-/* Construct the envp and argv tables on the target stack.  */
-abi_ulong loader_build_argptr(int envc, int argc, abi_ulong sp,
-                              abi_ulong stringp, int push_ptr)
-{
-    TaskState *ts = (TaskState *)thread_cpu->opaque;
-    int n = sizeof(abi_ulong);
-    abi_ulong envp;
-    abi_ulong argv;
-
-    sp -= (envc + 1) * n;
-    envp = sp;
-    sp -= (argc + 1) * n;
-    argv = sp;
-    if (push_ptr) {
-        /* FIXME - handle put_user() failures */
-        sp -= n;
-        put_user_ual(envp, sp);
-        sp -= n;
-        put_user_ual(argv, sp);
-    }
-    sp -= n;
-    /* FIXME - handle put_user() failures */
-    put_user_ual(argc, sp);
-    ts->info->arg_start = stringp;
-    while (argc-- > 0) {
-        /* FIXME - handle put_user() failures */
-        put_user_ual(stringp, argv);
-        argv += n;
-        stringp += target_strlen(stringp) + 1;
-    }
-    ts->info->arg_end = stringp;
-    /* FIXME - handle put_user() failures */
-    put_user_ual(0, argv);
-    while (envc-- > 0) {
-        /* FIXME - handle put_user() failures */
-        put_user_ual(stringp, envp);
-        envp += n;
-        stringp += target_strlen(stringp) + 1;
-    }
-    /* FIXME - handle put_user() failures */
-    put_user_ual(0, envp);
-
-    return sp;
-}
-
-int loader_exec(int fdexec, const char *filename, char **argv, char **envp,
+int loader_exec(int fdexec, const char *filename, char **argv,
              struct target_pt_regs * regs, struct image_info *infop,
              struct linux_binprm *bprm)
 {
@@ -143,8 +98,6 @@ int loader_exec(int fdexec, const char *filename, char **argv, char **envp,
     bprm->filename = (char *)filename;
     bprm->argc = count(argv);
     bprm->argv = argv;
-    bprm->envc = count(envp);
-    bprm->envp = envp;
 
     retval = prepare_binprm(bprm);
 
@@ -153,7 +106,7 @@ int loader_exec(int fdexec, const char *filename, char **argv, char **envp,
                 && bprm->buf[1] == 'C'
                 && bprm->buf[2] == 'G'
                 && bprm->buf[3] == 'C') {
-            retval = load_elf_binary(bprm, infop);
+            retval = load_cgc_binary(bprm, infop);
         } else {
             return -ENOEXEC;
         }

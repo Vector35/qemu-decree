@@ -1,4 +1,5 @@
-/* This is the Linux kernel elf-loading code, ported into user space */
+/* This is the Linux kernel elf-loading code, ported into user space.  Modified to read
+ * CGC DECREE binaries as the DARPA provided kernel does. */
 #include <sys/time.h>
 #include <sys/param.h>
 
@@ -12,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <libgen.h>
 
 #include "qemu.h"
 #include "disas/disas.h"
@@ -121,28 +123,6 @@ typedef abi_int         target_pid_t;
 
 #ifdef TARGET_I386
 
-#define ELF_PLATFORM get_elf_platform()
-
-static const char *get_elf_platform(void)
-{
-    static char elf_platform[] = "i386";
-    int family = object_property_get_int(OBJECT(thread_cpu), "family", NULL);
-    if (family > 6)
-        family = 6;
-    if (family >= 3)
-        elf_platform[1] = '0' + family;
-    return elf_platform;
-}
-
-#define ELF_HWCAP get_elf_hwcap()
-
-static uint32_t get_elf_hwcap(void)
-{
-    X86CPU *cpu = X86_CPU(thread_cpu);
-
-    return cpu->env.features[FEAT_1_EDX];
-}
-
 #define ELF_START_MMAP 0x80000000
 
 /*
@@ -251,11 +231,6 @@ struct exec
 
 #define DLINFO_ITEMS 14
 
-static inline void memcpy_fromfs(void * to, const void * from, unsigned long n)
-{
-    memcpy(to, from, n);
-}
-
 #ifdef BSWAP_NEEDED
 static void bswap_ehdr(struct elfhdr *ehdr)
 {
@@ -288,36 +263,9 @@ static void bswap_phdr(struct elf_phdr *phdr, int phnum)
         bswaptls(&phdr->p_align);       /* Segment alignment */
     }
 }
-
-static void bswap_shdr(struct elf_shdr *shdr, int shnum)
-{
-    int i;
-    for (i = 0; i < shnum; ++i, ++shdr) {
-        bswap32s(&shdr->sh_name);
-        bswap32s(&shdr->sh_type);
-        bswaptls(&shdr->sh_flags);
-        bswaptls(&shdr->sh_addr);
-        bswaptls(&shdr->sh_offset);
-        bswaptls(&shdr->sh_size);
-        bswap32s(&shdr->sh_link);
-        bswap32s(&shdr->sh_info);
-        bswaptls(&shdr->sh_addralign);
-        bswaptls(&shdr->sh_entsize);
-    }
-}
-
-static void bswap_sym(struct elf_sym *sym)
-{
-    bswap32s(&sym->st_name);
-    bswaptls(&sym->st_value);
-    bswaptls(&sym->st_size);
-    bswap16s(&sym->st_shndx);
-}
 #else
 static inline void bswap_ehdr(struct elfhdr *ehdr) { }
 static inline void bswap_phdr(struct elf_phdr *phdr, int phnum) { }
-static inline void bswap_shdr(struct elf_shdr *shdr, int shnum) { }
-static inline void bswap_sym(struct elf_sym *sym) { }
 #endif
 
 #ifdef USE_ELF_CORE_DUMP
@@ -347,80 +295,20 @@ static bool elf_check_ehdr(struct elfhdr *ehdr)
             && (ehdr->e_type == ET_EXEC || ehdr->e_type == ET_DYN));
 }
 
-/*
- * 'copy_elf_strings()' copies argument/envelope strings from user
- * memory to free pages in kernel mem. These are in a format ready
- * to be put directly into the top of new user memory.
- *
- */
-static abi_ulong copy_elf_strings(int argc,char ** argv, void **page,
-                                  abi_ulong p)
-{
-    char *tmp, *tmp1, *pag = NULL;
-    int len, offset = 0;
-
-    if (!p) {
-        return 0;       /* bullet-proofing */
-    }
-    while (argc-- > 0) {
-        tmp = argv[argc];
-        if (!tmp) {
-            fprintf(stderr, "VFS: argc is wrong");
-            exit(-1);
-        }
-        tmp1 = tmp;
-        while (*tmp++);
-        len = tmp - tmp1;
-        if (p < len) {  /* this shouldn't happen - 128kB */
-            return 0;
-        }
-        while (len) {
-            --p; --tmp; --len;
-            if (--offset < 0) {
-                offset = p % TARGET_PAGE_SIZE;
-                pag = (char *)page[p/TARGET_PAGE_SIZE];
-                if (!pag) {
-                    pag = g_try_malloc0(TARGET_PAGE_SIZE);
-                    page[p/TARGET_PAGE_SIZE] = pag;
-                    if (!pag)
-                        return 0;
-                }
-            }
-            if (len == 0 || offset == 0) {
-                *(pag + offset) = *tmp;
-            }
-            else {
-                int bytes_to_copy = (len > offset) ? offset : len;
-                tmp -= bytes_to_copy;
-                p -= bytes_to_copy;
-                offset -= bytes_to_copy;
-                len -= bytes_to_copy;
-                memcpy_fromfs(pag + offset, tmp, bytes_to_copy + 1);
-            }
-        }
-    }
-    return p;
-}
-
-static abi_ulong setup_arg_pages(abi_ulong p, struct linux_binprm *bprm,
-                                 struct image_info *info)
+static abi_ulong setup_stack_pages(abi_ulong p, struct linux_binprm *bprm,
+                                   struct image_info *info)
 {
     abi_ulong stack_base, size, error, guard;
-    int i;
 
-    /* Create enough stack to hold everything.  If we don't use
-       it for args, we'll use it for something else.  */
-    size = guest_stack_size;
-    if (size < MAX_ARG_PAGES*TARGET_PAGE_SIZE) {
-        size = MAX_ARG_PAGES*TARGET_PAGE_SIZE;
-    }
+    /* DECREE uses an 8MB stack ending at 0xbaaab000 */
+    size = 8 * 1024 * 1024;
     guard = TARGET_PAGE_SIZE;
     if (guard < qemu_real_host_page_size) {
         guard = qemu_real_host_page_size;
     }
 
-    error = target_mmap(0, size + guard, PROT_READ | PROT_WRITE,
-                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    error = target_mmap(0xbaaab000 - (size + guard), size + guard, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
     if (error == -1) {
         perror("mmap stack");
         exit(-1);
@@ -430,19 +318,8 @@ static abi_ulong setup_arg_pages(abi_ulong p, struct linux_binprm *bprm,
     target_mprotect(error, guard, PROT_NONE);
 
     info->stack_limit = error + guard;
-    stack_base = info->stack_limit + size - MAX_ARG_PAGES*TARGET_PAGE_SIZE;
-    p += stack_base;
-
-    for (i = 0 ; i < MAX_ARG_PAGES ; i++) {
-        if (bprm->page[i]) {
-            info->rss++;
-            /* FIXME - check return value of memcpy_to_target() for failure */
-            memcpy_to_target(stack_base, bprm->page[i], TARGET_PAGE_SIZE);
-            g_free(bprm->page[i]);
-        }
-        stack_base += TARGET_PAGE_SIZE;
-    }
-    return p;
+    stack_base = info->stack_limit + size;
+    return stack_base - 4;
 }
 
 /* Map and zero the bss.  We need to explicitly zero any fractional pages
@@ -514,129 +391,6 @@ static abi_ulong loader_build_fdpic_loadmap(struct image_info *info, abi_ulong s
     return sp;
 }
 #endif
-
-static abi_ulong create_elf_tables(abi_ulong p, int argc, int envc,
-                                   struct elfhdr *exec,
-                                   struct image_info *info,
-                                   struct image_info *interp_info)
-{
-    abi_ulong sp;
-    abi_ulong sp_auxv;
-    int size;
-    int i;
-    abi_ulong u_rand_bytes;
-    uint8_t k_rand_bytes[16];
-    abi_ulong u_platform;
-    const char *k_platform;
-    const int n = sizeof(elf_addr_t);
-
-    sp = p;
-
-#ifdef CONFIG_USE_FDPIC
-    /* Needs to be before we load the env/argc/... */
-    if (elf_is_fdpic(exec)) {
-        /* Need 4 byte alignment for these structs */
-        sp &= ~3;
-        sp = loader_build_fdpic_loadmap(info, sp);
-        info->other_info = interp_info;
-        if (interp_info) {
-            interp_info->other_info = info;
-            sp = loader_build_fdpic_loadmap(interp_info, sp);
-        }
-    }
-#endif
-
-    u_platform = 0;
-    k_platform = ELF_PLATFORM;
-    if (k_platform) {
-        size_t len = strlen(k_platform) + 1;
-        sp -= (len + n - 1) & ~(n - 1);
-        u_platform = sp;
-        /* FIXME - check return value of memcpy_to_target() for failure */
-        memcpy_to_target(sp, k_platform, len);
-    }
-
-    /*
-     * Generate 16 random bytes for userspace PRNG seeding (not
-     * cryptically secure but it's not the aim of QEMU).
-     */
-    for (i = 0; i < 16; i++) {
-        k_rand_bytes[i] = rand();
-    }
-    sp -= 16;
-    u_rand_bytes = sp;
-    /* FIXME - check return value of memcpy_to_target() for failure */
-    memcpy_to_target(sp, k_rand_bytes, 16);
-
-    /*
-     * Force 16 byte _final_ alignment here for generality.
-     */
-    sp = sp &~ (abi_ulong)15;
-    size = (DLINFO_ITEMS + 1) * 2;
-    if (k_platform)
-        size += 2;
-#ifdef DLINFO_ARCH_ITEMS
-    size += DLINFO_ARCH_ITEMS * 2;
-#endif
-#ifdef ELF_HWCAP2
-    size += 2;
-#endif
-    size += envc + argc + 2;
-    size += 1;  /* argc itself */
-    size *= n;
-    if (size & 15)
-        sp -= 16 - (size & 15);
-
-    /* This is correct because Linux defines
-     * elf_addr_t as Elf32_Off / Elf64_Off
-     */
-#define NEW_AUX_ENT(id, val) do {               \
-        sp -= n; put_user_ual(val, sp);         \
-        sp -= n; put_user_ual(id, sp);          \
-    } while(0)
-
-    sp_auxv = sp;
-    NEW_AUX_ENT (AT_NULL, 0);
-
-    /* There must be exactly DLINFO_ITEMS entries here.  */
-    NEW_AUX_ENT(AT_PHDR, (abi_ulong)(info->load_addr + exec->e_phoff));
-    NEW_AUX_ENT(AT_PHENT, (abi_ulong)(sizeof (struct elf_phdr)));
-    NEW_AUX_ENT(AT_PHNUM, (abi_ulong)(exec->e_phnum));
-    NEW_AUX_ENT(AT_PAGESZ, (abi_ulong)(MAX(TARGET_PAGE_SIZE, getpagesize())));
-    NEW_AUX_ENT(AT_BASE, (abi_ulong)(interp_info ? interp_info->load_addr : 0));
-    NEW_AUX_ENT(AT_FLAGS, (abi_ulong)0);
-    NEW_AUX_ENT(AT_ENTRY, info->entry);
-    NEW_AUX_ENT(AT_UID, (abi_ulong) getuid());
-    NEW_AUX_ENT(AT_EUID, (abi_ulong) geteuid());
-    NEW_AUX_ENT(AT_GID, (abi_ulong) getgid());
-    NEW_AUX_ENT(AT_EGID, (abi_ulong) getegid());
-    NEW_AUX_ENT(AT_HWCAP, (abi_ulong) ELF_HWCAP);
-    NEW_AUX_ENT(AT_CLKTCK, (abi_ulong) sysconf(_SC_CLK_TCK));
-    NEW_AUX_ENT(AT_RANDOM, (abi_ulong) u_rand_bytes);
-
-#ifdef ELF_HWCAP2
-    NEW_AUX_ENT(AT_HWCAP2, (abi_ulong) ELF_HWCAP2);
-#endif
-
-    if (k_platform)
-        NEW_AUX_ENT(AT_PLATFORM, u_platform);
-#ifdef ARCH_DLINFO
-    /*
-     * ARCH_DLINFO must come last so platform specific code can enforce
-     * special alignment requirements on the AUXV if necessary (eg. PPC).
-     */
-    ARCH_DLINFO;
-#endif
-#undef NEW_AUX_ENT
-
-    info->saved_auxv = sp;
-    info->auxv_len = sp_auxv - sp;
-
-    sp = loader_build_argptr(envc, argc, sp, p, 0);
-    /* Check the right amount of stack was allocated for auxvec, envp & argv. */
-    assert(sp_auxv - sp == size);
-    return sp;
-}
 
 #ifndef TARGET_HAS_VALIDATE_GUEST_SPACE
 /* If the guest doesn't have a validation function just agree */
@@ -799,7 +553,7 @@ exit_errmsg:
 
    On return: INFO values will be filled in, as necessary or available.  */
 
-static void load_elf_image(const char *image_name, int image_fd,
+static void load_cgc_image(const char *image_name, int image_fd,
                            struct image_info *info,
                            char bprm_buf[BPRM_BUF_SIZE])
 {
@@ -841,6 +595,7 @@ static void load_elf_image(const char *image_name, int image_fd,
     loaddr = -1, hiaddr = 0;
     for (i = 0; i < ehdr->e_phnum; ++i) {
         if (phdr[i].p_type == PT_LOAD) {
+			if (phdr[i].p_memsz == 0 && phdr[i].p_filesz == 0) continue;
             abi_ulong a = phdr[i].p_vaddr - phdr[i].p_offset;
             if (a < loaddr) {
                 loaddr = a;
@@ -913,7 +668,6 @@ static void load_elf_image(const char *image_name, int image_fd,
                                 elf_prot, MAP_PRIVATE | MAP_FIXED,
                                 image_fd, eppnt->p_offset - vaddr_po);
             if (error == -1) {
-				printf("ptr=%x len=%x prot=%x filesz=%x\n", (int)vaddr_ps, (int)(eppnt->p_filesz + vaddr_po), elf_prot, (int)eppnt->p_offset - vaddr_po);
                 goto exit_perror;
             }
 
@@ -969,36 +723,17 @@ static void load_elf_image(const char *image_name, int image_fd,
     exit(-1);
 }
 
-int load_elf_binary(struct linux_binprm *bprm, struct image_info *info)
+int load_cgc_binary(struct linux_binprm *bprm, struct image_info *info)
 {
-    struct elfhdr elf_ex;
-
     info->start_mmap = (abi_ulong)ELF_START_MMAP;
     info->mmap = 0;
     info->rss = 0;
 
-    load_elf_image(bprm->filename, bprm->fd, info,
+    load_cgc_image(bprm->filename, bprm->fd, info,
                    bprm->buf);
 
-    /* ??? We need a copy of the elf header for passing to create_elf_tables.
-       If we do nothing, we'll have overwritten this when we re-use bprm->buf
-       when we load the interpreter.  */
-    elf_ex = *(struct elfhdr *)bprm->buf;
-
-    bprm->p = copy_elf_strings(1, &bprm->filename, bprm->page, bprm->p);
-    bprm->p = copy_elf_strings(bprm->envc,bprm->envp,bprm->page,bprm->p);
-    bprm->p = copy_elf_strings(bprm->argc,bprm->argv,bprm->page,bprm->p);
-    if (!bprm->p) {
-        fprintf(stderr, "%s: %s\n", bprm->filename, strerror(E2BIG));
-        exit(-1);
-    }
-
-    /* Do this so that we can load the interpreter, if need be.  We will
-       change some of these later */
-    bprm->p = setup_arg_pages(bprm->p, bprm, info);
-
-    bprm->p = create_elf_tables(bprm->p, bprm->argc, bprm->envc, &elf_ex,
-                                info, NULL);
+    /* CGC executables have no argp or envp, stack starts empty */
+    bprm->p = setup_stack_pages(bprm->p, bprm, info);
     info->start_stack = bprm->p;
 
 #ifdef USE_ELF_CORE_DUMP

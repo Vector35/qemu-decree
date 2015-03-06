@@ -25,8 +25,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
-#include <linux/mman.h>
-#include <linux/unistd.h>
 
 #include "qemu.h"
 #include "qemu-common.h"
@@ -167,12 +165,6 @@ static int mmap_frag(abi_ulong real_start,
 
     prot_new = prot | prot1;
     if (!(flags & MAP_ANONYMOUS)) {
-        /* msync() won't work here, so we return an error if write is
-           possible while it is a shared mapping */
-        if ((flags & MAP_TYPE) == MAP_SHARED &&
-            (prot & PROT_WRITE))
-            return -1;
-
         /* adjust protection to be able to read */
         if (!(prot1 & PROT_WRITE))
             mprotect(host_start, qemu_host_page_size, prot1 | PROT_WRITE);
@@ -501,13 +493,6 @@ abi_long target_mmap(abi_ulong start, abi_ulong len, int prot,
            aligned, so we read it */
         if (!(flags & MAP_ANONYMOUS) &&
             (offset & ~qemu_host_page_mask) != (start & ~qemu_host_page_mask)) {
-            /* msync() won't work here, so we return an error if write is
-               possible while it is a shared mapping */
-            if ((flags & MAP_TYPE) == MAP_SHARED &&
-                (prot & PROT_WRITE)) {
-                errno = EINVAL;
-                goto fail;
-            }
             retaddr = target_mmap(start, len, prot | PROT_WRITE,
                                   MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS,
                                   -1, 0);
@@ -685,97 +670,3 @@ int target_munmap(abi_ulong start, abi_ulong len)
     return ret;
 }
 
-abi_long target_mremap(abi_ulong old_addr, abi_ulong old_size,
-                       abi_ulong new_size, unsigned long flags,
-                       abi_ulong new_addr)
-{
-    int prot;
-    void *host_addr;
-
-    mmap_lock();
-
-    if (flags & MREMAP_FIXED) {
-        host_addr = (void *) syscall(__NR_mremap, g2h(old_addr),
-                                     old_size, new_size,
-                                     flags,
-                                     g2h(new_addr));
-
-        if (RESERVED_VA && host_addr != MAP_FAILED) {
-            /* If new and old addresses overlap then the above mremap will
-               already have failed with EINVAL.  */
-            mmap_reserve(old_addr, old_size);
-        }
-    } else if (flags & MREMAP_MAYMOVE) {
-        abi_ulong mmap_start;
-
-        mmap_start = mmap_find_vma(0, new_size);
-
-        if (mmap_start == -1) {
-            errno = ENOMEM;
-            host_addr = MAP_FAILED;
-        } else {
-            host_addr = (void *) syscall(__NR_mremap, g2h(old_addr),
-                                         old_size, new_size,
-                                         flags | MREMAP_FIXED,
-                                         g2h(mmap_start));
-            if ( RESERVED_VA ) {
-                mmap_reserve(old_addr, old_size);
-            }
-        }
-    } else {
-        int prot = 0;
-        if (RESERVED_VA && old_size < new_size) {
-            abi_ulong addr;
-            for (addr = old_addr + old_size;
-                 addr < old_addr + new_size;
-                 addr++) {
-                prot |= page_get_flags(addr);
-            }
-        }
-        if (prot == 0) {
-            host_addr = mremap(g2h(old_addr), old_size, new_size, flags);
-            if (host_addr != MAP_FAILED && RESERVED_VA && old_size > new_size) {
-                mmap_reserve(old_addr + old_size, new_size - old_size);
-            }
-        } else {
-            errno = ENOMEM;
-            host_addr = MAP_FAILED;
-        }
-        /* Check if address fits target address space */
-        if ((unsigned long)host_addr + new_size > (abi_ulong)-1) {
-            /* Revert mremap() changes */
-            host_addr = mremap(g2h(old_addr), new_size, old_size, flags);
-            errno = ENOMEM;
-            host_addr = MAP_FAILED;
-        }
-    }
-
-    if (host_addr == MAP_FAILED) {
-        new_addr = -1;
-    } else {
-        new_addr = h2g(host_addr);
-        prot = page_get_flags(old_addr);
-        page_set_flags(old_addr, old_addr + old_size, 0);
-        page_set_flags(new_addr, new_addr + new_size, prot | PAGE_VALID);
-    }
-    tb_invalidate_phys_range(new_addr, new_addr + new_size, 0);
-    mmap_unlock();
-    return new_addr;
-}
-
-int target_msync(abi_ulong start, abi_ulong len, int flags)
-{
-    abi_ulong end;
-
-    if (start & ~TARGET_PAGE_MASK)
-        return -EINVAL;
-    len = TARGET_PAGE_ALIGN(len);
-    end = start + len;
-    if (end < start)
-        return -EINVAL;
-    if (end == start)
-        return 0;
-
-    start &= qemu_host_page_mask;
-    return msync(g2h(start), end - start, flags);
-}
