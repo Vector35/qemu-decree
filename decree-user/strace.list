@@ -1,0 +1,12 @@
+/*
+ * Note that if you change format strings in these, check also
+ * that corresponding print functions are able to handle string
+ * locking correctly (see strace.c).
+ */
+{ 1, "terminate" , "%s(%x)", NULL, NULL },
+{ 2, "transmit" , "%s(%x,%p,%x,%p)", NULL, NULL },
+{ 3, "receive" , "%s(%x,%p,%x,%p)", NULL, NULL },
+{ 4, "fdwait" , NULL, NULL, NULL },
+{ 5, "allocate" , NULL, NULL, NULL },
+{ 6, "deallocate" , NULL, NULL, NULL },
+{ 7, "random" , "%s(%p,%x,%p)", NULL, NULL }

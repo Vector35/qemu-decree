@@ -294,6 +294,7 @@ profiler="no"
 cocoa="no"
 softmmu="yes"
 linux_user="no"
+decree_user="yes"
 bsd_user="no"
 guest_base="yes"
 aix="no"
@@ -965,6 +966,10 @@ for opt do
   ;;
   --enable-linux-user) linux_user="yes"
   ;;
+  --disable-decree-user) decree_user="no"
+  ;;
+  --enable-decree-user) decree_user="yes"
+  ;;
   --disable-bsd-user) bsd_user="no"
   ;;
   --enable-bsd-user) bsd_user="yes"
@@ -1217,6 +1222,9 @@ fi
 if [ "$linux_user" = "yes" ]; then
     mak_wilds="${mak_wilds} $source_path/default-configs/*-linux-user.mak"
 fi
+if [ "$decree_user" = "yes" ]; then
+    mak_wilds="${mak_wilds} $source_path/default-configs/*-decree-user.mak"
+fi
 if [ "$bsd_user" = "yes" ]; then
     mak_wilds="${mak_wilds} $source_path/default-configs/*-bsd-user.mak"
 fi
@@ -1332,6 +1340,8 @@ Advanced options (experts only):
   --disable-user           disable all user emulation targets
   --enable-linux-user      enable all linux usermode emulation targets
   --disable-linux-user     disable all linux usermode emulation targets
+  --enable-decree-user     enable all DECREE usermode emulation targets
+  --disable-decree-user    disable all DECREE usermode emulation targets
   --enable-bsd-user        enable all BSD usermode emulation targets
   --disable-bsd-user       disable all BSD usermode emulation targets
   --enable-guest-base      enable GUEST_BASE support for usermode
@@ -5070,6 +5080,10 @@ case "$target" in
     target_user_only="yes"
     target_linux_user="yes"
     ;;
+  ${target_name}-decree-user)
+    target_user_only="yes"
+    target_decree_user="yes"
+    ;;
   ${target_name}-bsd-user)
     if test "$bsd" != "yes" ; then
       error_exit "Target '$target' is only available on a BSD host"
@@ -5264,6 +5278,9 @@ fi
 if test "$target_linux_user" = "yes" ; then
   echo "CONFIG_LINUX_USER=y" >> $config_target_mak
 fi
+if test "$target_decree_user" = "yes" ; then
+  echo "CONFIG_DECREE_USER=y" >> $config_target_mak
+fi
 list=""
 if test ! -z "$gdb_xml_files" ; then
   for x in $gdb_xml_files; do
@@ -5383,7 +5400,7 @@ esac
 
 if test "$gprof" = "yes" ; then
   echo "TARGET_GPROF=yes" >> $config_target_mak
-  if test "$target_linux_user" = "yes" ; then
+  if test "$target_linux_user" = "yes" -o "$target_decree_user" = "yes" ; then
     cflags="-p $cflags"
     ldflags="-p $ldflags"
   fi
@@ -5393,7 +5410,7 @@ if test "$gprof" = "yes" ; then
   fi
 fi
 
-if test "$target_linux_user" = "yes" -o "$target_bsd_user" = "yes" ; then
+if test "$target_linux_user" = "yes" -o "$target_bsd_user" = "yes" -o "$target_decree_user" = "yes" ; then
   ldflags="$ldflags $textseg_ldflags"
 fi
 
