@@ -245,8 +245,7 @@ class Throw(object):
         Raises:
             None
         """
-        if self.debug:
-            print "# %s" % message
+        print "# %s" % message
 
     def sleep(self, value):
         """ Sleep a specified amount

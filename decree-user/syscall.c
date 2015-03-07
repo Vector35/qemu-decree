@@ -34,25 +34,16 @@ static uint16_t target_to_host_errno_table[ERRNO_TABLE_SIZE] = {
  * set of valid DECREE syscalls.
  */
 static uint16_t host_to_target_errno_table[ERRNO_TABLE_SIZE] = {
-    [EAGAIN]       = TARGET_EAGAIN,
     [EBADF]        = TARGET_EBADF,
     [EFAULT]       = TARGET_EFAULT,
-    [EINTR]        = TARGET_EINTR,
     [EINVAL]       = TARGET_EINVAL,
-    [EIO]          = TARGET_EIO,
-    [EISDIR]       = TARGET_EISDIR,
-    [EDESTADDRREQ] = TARGET_EDESTADDRREQ,
-    [EDQUOT]       = TARGET_EDQUOT,
-    [EFBIG]        = TARGET_EFBIG,
-    [ENOSPC]       = TARGET_ENOSPC,
-    [EPIPE]        = TARGET_EPIPE,
     [ENOMEM]       = TARGET_ENOMEM,
-    [ENODEV]       = TARGET_ENODEV,
-    [EACCES]       = TARGET_EACCES,
-    [ENFILE]       = TARGET_ENFILE,
-    [EPERM]        = TARGET_EPERM,
-    [ETXTBSY]      = TARGET_ETXTBSY,
-    [EOVERFLOW]    = TARGET_EOVERFLOW
+    [ENOSYS]       = TARGET_ENOSYS,
+    [EPIPE]        = TARGET_EPIPE,
+
+    /* This will never be returned directly to the caller and will cause the syscall
+     * to be restarted automatically. */
+    [EINTR]        = TARGET_EINTR
 };
 
 static inline int host_to_target_errno(int err)
@@ -273,6 +264,13 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
                 goto efault;
             ret = 0;
         }
+
+        /* In the game environment stdin/stdout are always on a socket, but during simulation
+         * it may be a pipe.  Redirect any EPIPE errors to EINVAL to mirror what would happen
+         * on a socket. */
+        if ((arg1 == 1) && (ret == -TARGET_EPIPE))
+            ret = -TARGET_EINVAL;
+
         unlock_user(p, arg2, 0);
         break;
 
@@ -296,6 +294,13 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
                 goto efault;
             ret = 0;
         }
+
+        /* In the game environment stdin/stdout are always on a socket, but during simulation
+         * it may be a pipe.  Redirect any EPIPE errors to EINVAL to mirror what would happen
+         * on a socket. */
+        if ((arg1 == 0) && (ret == -TARGET_EPIPE))
+            ret = -TARGET_EINVAL;
+
         unlock_user(p, arg2, ret);
         break;
 
@@ -348,7 +353,8 @@ fail:
 #endif
     if(do_strace)
         print_syscall_ret(num, ret);
-    return ret;
+    /* Errors returned to the guest should be positive integers */
+    return -ret;
 efault:
     ret = -TARGET_EFAULT;
     goto fail;

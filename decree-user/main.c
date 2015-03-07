@@ -175,7 +175,7 @@ void cpu_loop(CPUX86State *env)
 {
     CPUState *cs = CPU(x86_env_get_cpu(env));
     int trapnr;
-    abi_ulong pc;
+    abi_ulong pc, orig_eax;
     target_siginfo_t info;
 
     for(;;) {
@@ -185,14 +185,23 @@ void cpu_loop(CPUX86State *env)
         switch(trapnr) {
         case 0x80:
             /* linux syscall from int $0x80 */
-            env->regs[R_EAX] = do_syscall(env,
-                                          env->regs[R_EAX],
-                                          env->regs[R_EBX],
-                                          env->regs[R_ECX],
-                                          env->regs[R_EDX],
-                                          env->regs[R_ESI],
-                                          env->regs[R_EDI],
-                                          env->regs[R_EBP]);
+            while (true) {
+                orig_eax = env->regs[R_EAX];
+                env->regs[R_EAX] = do_syscall(env,
+                                              env->regs[R_EAX],
+                                              env->regs[R_EBX],
+                                              env->regs[R_ECX],
+                                              env->regs[R_EDX],
+                                              env->regs[R_ESI],
+                                              env->regs[R_EDI],
+                                              env->regs[R_EBP]);
+                if (env->regs[R_EAX] == TARGET_EINTR) {
+                    /* Automatically restart interrupted syscalls */
+                    env->regs[R_EAX] = orig_eax;
+                    continue;
+                }
+                break;
+            }
             break;
         case EXCP_SYSCALL:
             info.si_signo = TARGET_SIGILL;
@@ -641,8 +650,10 @@ int main(int argc, char **argv)
     int ret, exit_status;
     int i;
     pid_t* children;
-    int* ipc_sockets;
+    int* ipc_sockets = NULL;
     int is_parent;
+
+    signal(SIGPIPE, SIG_IGN);
 
     module_call_init(MODULE_INIT_QOM);
 
