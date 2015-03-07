@@ -701,15 +701,15 @@ int main(int argc, char **argv)
         }
 
         if (reserved_va) {
-			if (reserved_va >= DECREE_MAX_ALLOC_ADDRESS) {
-				/*
-				 * Match the decree starting dynamic allocation address if the guest
-				 * space is big enough.
-				 */
-				mmap_next_start = DECREE_MAX_ALLOC_ADDRESS;
-			} else {
-	            mmap_next_start = reserved_va;
-			}
+            if (reserved_va >= DECREE_MAX_ALLOC_ADDRESS) {
+                /*
+                 * Match the decree starting dynamic allocation address if the guest
+                 * space is big enough.
+                 */
+                mmap_next_start = DECREE_MAX_ALLOC_ADDRESS;
+            } else {
+                mmap_next_start = reserved_va;
+            }
         }
     }
 #endif /* CONFIG_USE_GUEST_BASE */
@@ -808,11 +808,11 @@ int main(int argc, char **argv)
     env->eip = regs->eip;
 
     /* Set up IDT and GDT addresses to look like a Linux system, these will not actually be
-	 * used during execution. */
+     * used during execution. */
     env->idt.limit = 0x7ff;
-	env->idt.base = 0xffffb000;
-	env->gdt.limit = 0xff;
-	env->gdt.base = 0xc1436000;
+    env->idt.base = 0xffffb000;
+    env->gdt.limit = 0xff;
+    env->gdt.base = 0xc1436000;
 
     /* linux segment setup */
     cpu_x86_load_seg(env, R_CS, __USER_CS);

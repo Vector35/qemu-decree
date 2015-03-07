@@ -595,7 +595,7 @@ static void load_cgc_image(const char *image_name, int image_fd,
     loaddr = -1, hiaddr = 0;
     for (i = 0; i < ehdr->e_phnum; ++i) {
         if (phdr[i].p_type == PT_LOAD) {
-			if (phdr[i].p_memsz == 0 && phdr[i].p_filesz == 0) continue;
+            if (phdr[i].p_memsz == 0 && phdr[i].p_filesz == 0) continue;
             abi_ulong a = phdr[i].p_vaddr - phdr[i].p_offset;
             if (a < loaddr) {
                 loaddr = a;
@@ -654,7 +654,7 @@ static void load_cgc_image(const char *image_name, int image_fd,
             abi_ulong vaddr, vaddr_po, vaddr_ps, vaddr_ef, vaddr_em;
             int elf_prot = 0;
 
-			if (eppnt->p_memsz == 0 && eppnt->p_filesz == 0) continue;
+            if (eppnt->p_memsz == 0 && eppnt->p_filesz == 0) continue;
 
             if (eppnt->p_flags & PF_R) elf_prot =  PROT_READ;
             if (eppnt->p_flags & PF_W) elf_prot |= PROT_WRITE;

@@ -200,9 +200,9 @@ static abi_ulong mmap_find_vma_reserved(abi_ulong start, abi_ulong size)
     if (end_addr > RESERVED_VA) {
         end_addr = RESERVED_VA;
     }
-	if (end_addr > DECREE_MAX_ALLOC_ADDRESS) {
-		end_addr = DECREE_MAX_ALLOC_ADDRESS;
-	}
+    if (end_addr > DECREE_MAX_ALLOC_ADDRESS) {
+        end_addr = DECREE_MAX_ALLOC_ADDRESS;
+    }
     addr = end_addr - qemu_host_page_size;
 
     while (1) {
@@ -211,9 +211,9 @@ static abi_ulong mmap_find_vma_reserved(abi_ulong start, abi_ulong size)
                 return (abi_ulong)-1;
             }
             end_addr = RESERVED_VA;
-			if (end_addr > DECREE_MAX_ALLOC_ADDRESS) {
-				end_addr = DECREE_MAX_ALLOC_ADDRESS;
-			}
+            if (end_addr > DECREE_MAX_ALLOC_ADDRESS) {
+                end_addr = DECREE_MAX_ALLOC_ADDRESS;
+            }
             addr = end_addr - qemu_host_page_size;
             looped = 1;
             continue;
@@ -406,12 +406,12 @@ abi_long target_mmap(abi_ulong start, abi_ulong len, int prot,
     }
 
     /* When mapping files into a memory area larger than the file, accesses
-       to pages beyond the file size will cause a SIGBUS. 
+       to pages beyond the file size will cause a SIGBUS.
 
        For example, if mmaping a file of 100 bytes on a host with 4K pages
        emulating a target with 8K pages, the target expects to be able to
        access the first 8K. But the host will trap us on any access beyond
-       4K.  
+       4K.
 
        When emulating a target with a larger page-size than the hosts, we
        may need to truncate file maps at EOF and add extra anonymous pages
@@ -426,7 +426,7 @@ abi_long target_mmap(abi_ulong start, abi_ulong len, int prot,
 
        /* Are we trying to create a map beyond EOF?.  */
        if (offset + len > sb.st_size) {
-           /* If so, truncate the file map at eof aligned with 
+           /* If so, truncate the file map at eof aligned with
               the hosts real pagesize. Additional anonymous maps
               will be created beyond EOF.  */
            len = (sb.st_size - offset);
@@ -469,11 +469,11 @@ abi_long target_mmap(abi_ulong start, abi_ulong len, int prot,
         end = start + len;
         real_end = HOST_PAGE_ALIGN(end);
 
-	/*
-	 * Test if requested memory area fits target address space
-	 * It can fail only on 64-bit host with 32-bit target.
-	 * On any other target/host host mmap() handles this error correctly.
-	 */
+    /*
+     * Test if requested memory area fits target address space
+     * It can fail only on 64-bit host with 32-bit target.
+     * On any other target/host host mmap() handles this error correctly.
+     */
         if ((unsigned long)start + len - 1 > (abi_ulong) -1) {
             errno = EINVAL;
             goto fail;
@@ -499,7 +499,7 @@ abi_long target_mmap(abi_ulong start, abi_ulong len, int prot,
             }
             goto the_end;
         }
-        
+
         /* handle the start of the mapping */
         if (start > real_start) {
             if (real_end == real_start + qemu_host_page_size) {
@@ -659,4 +659,3 @@ int target_munmap(abi_ulong start, abi_ulong len)
     mmap_unlock();
     return ret;
 }
-

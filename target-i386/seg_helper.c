@@ -1110,9 +1110,9 @@ static void do_interrupt_user(CPUX86State *env, int intno, int is_int,
                               int error_code, target_ulong next_eip)
 {
 #if defined(CONFIG_DECREE_USER)
-	if (is_int && (intno != 3) && (intno != 0x80)) {
+    if (is_int && (intno != 3) && (intno != 0x80)) {
         raise_exception_err(env, EXCP0D_GPF, (intno << 3) + 2);
-	}
+    }
 #else
     SegmentCache *dt;
     target_ulong ptr;
@@ -2555,31 +2555,31 @@ void helper_verw(CPUX86State *env, target_ulong selector1)
 void cpu_x86_load_seg(CPUX86State *env, int seg_reg, int selector)
 {
 #if defined(CONFIG_DECREE_USER)
-	if ((selector & 0xfffc) == 0) { /* Null selector */
-		if ((seg_reg == R_CS) || (seg_reg == R_SS)) {
+    if ((selector & 0xfffc) == 0) { /* Null selector */
+        if ((seg_reg == R_CS) || (seg_reg == R_SS)) {
             raise_exception_err(env, EXCP0D_GPF, selector);
-		} else {
-        	cpu_x86_load_seg_cache(env, seg_reg, selector, 0, 0, 0);
-		}
-	} else if (selector == 0x73) { /* Code segment */
-		if (seg_reg == R_SS) {
+        } else {
+            cpu_x86_load_seg_cache(env, seg_reg, selector, 0, 0, 0);
+        }
+    } else if (selector == 0x73) { /* Code segment */
+        if (seg_reg == R_SS) {
             raise_exception_err(env, EXCP0D_GPF, selector);
-		} else {
-			cpu_x86_load_seg_cache(env, seg_reg, selector, 0, 0xfffff,
-			                       DESC_G_MASK | DESC_B_MASK | DESC_P_MASK | DESC_S_MASK |
-			                       (3 << DESC_DPL_SHIFT) | (0xa << DESC_TYPE_SHIFT));
-		}
-	} else if (selector == 0x7b) { /* Data segment */
-		if (seg_reg == R_CS) {
+        } else {
+            cpu_x86_load_seg_cache(env, seg_reg, selector, 0, 0xfffff,
+                                   DESC_G_MASK | DESC_B_MASK | DESC_P_MASK | DESC_S_MASK |
+                                   (3 << DESC_DPL_SHIFT) | (0xa << DESC_TYPE_SHIFT));
+        }
+    } else if (selector == 0x7b) { /* Data segment */
+        if (seg_reg == R_CS) {
             raise_exception_err(env, EXCP0D_GPF, selector);
-		} else {
-			cpu_x86_load_seg_cache(env, seg_reg, selector, 0, 0xffffffff,
-			                       DESC_G_MASK | DESC_B_MASK | DESC_P_MASK | DESC_S_MASK |
-			                       (3 << DESC_DPL_SHIFT) | (0x2 << DESC_TYPE_SHIFT));
-		}
-	} else {
+        } else {
+            cpu_x86_load_seg_cache(env, seg_reg, selector, 0, 0xffffffff,
+                                   DESC_G_MASK | DESC_B_MASK | DESC_P_MASK | DESC_S_MASK |
+                                   (3 << DESC_DPL_SHIFT) | (0x2 << DESC_TYPE_SHIFT));
+        }
+    } else {
         raise_exception_err(env, EXCP0D_GPF, selector);
-	}
+    }
 #else
     if (!(env->cr[0] & CR0_PE_MASK) || (env->eflags & VM_MASK)) {
         int dpl = (env->eflags & VM_MASK) ? 3 : 0;

@@ -34,25 +34,25 @@ static uint16_t target_to_host_errno_table[ERRNO_TABLE_SIZE] = {
  * set of valid DECREE syscalls.
  */
 static uint16_t host_to_target_errno_table[ERRNO_TABLE_SIZE] = {
-	[EAGAIN]       = TARGET_EAGAIN,
-	[EBADF]        = TARGET_EBADF,
-	[EFAULT]       = TARGET_EFAULT,
-	[EINTR]        = TARGET_EINTR,
-	[EINVAL]       = TARGET_EINVAL,
-	[EIO]          = TARGET_EIO,
-	[EISDIR]       = TARGET_EISDIR,
-	[EDESTADDRREQ] = TARGET_EDESTADDRREQ,
-	[EDQUOT]       = TARGET_EDQUOT,
-	[EFBIG]        = TARGET_EFBIG,
-	[ENOSPC]       = TARGET_ENOSPC,
-	[EPIPE]        = TARGET_EPIPE,
-	[ENOMEM]       = TARGET_ENOMEM,
-	[ENODEV]       = TARGET_ENODEV,
-	[EACCES]       = TARGET_EACCES,
-	[ENFILE]       = TARGET_ENFILE,
-	[EPERM]        = TARGET_EPERM,
-	[ETXTBSY]      = TARGET_ETXTBSY,
-	[EOVERFLOW]    = TARGET_EOVERFLOW
+    [EAGAIN]       = TARGET_EAGAIN,
+    [EBADF]        = TARGET_EBADF,
+    [EFAULT]       = TARGET_EFAULT,
+    [EINTR]        = TARGET_EINTR,
+    [EINVAL]       = TARGET_EINVAL,
+    [EIO]          = TARGET_EIO,
+    [EISDIR]       = TARGET_EISDIR,
+    [EDESTADDRREQ] = TARGET_EDESTADDRREQ,
+    [EDQUOT]       = TARGET_EDQUOT,
+    [EFBIG]        = TARGET_EFBIG,
+    [ENOSPC]       = TARGET_ENOSPC,
+    [EPIPE]        = TARGET_EPIPE,
+    [ENOMEM]       = TARGET_ENOMEM,
+    [ENODEV]       = TARGET_ENODEV,
+    [EACCES]       = TARGET_EACCES,
+    [ENFILE]       = TARGET_ENFILE,
+    [EPERM]        = TARGET_EPERM,
+    [ETXTBSY]      = TARGET_ETXTBSY,
+    [EOVERFLOW]    = TARGET_EOVERFLOW
 };
 
 static inline int host_to_target_errno(int err)
@@ -261,38 +261,38 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
             goto efault;
         ret = get_errno(write(arg1, p, arg3));
         if (!is_error(ret)) {
-	        if (arg4 && put_user_sal(ret, arg4))
-		        goto efault;
-	        ret = 0;
+            if (arg4 && put_user_sal(ret, arg4))
+                goto efault;
+            ret = 0;
         }
         unlock_user(p, arg2, 0);
         break;
 
     case 3: /* receive */
-	    if (!(p = lock_user(VERIFY_WRITE, arg2, arg3, 0)))
-		    goto efault;
-	    if (arg3 == 0)
-		    ret = 0;
-		else
-		    ret = get_errno(read(arg1, p, arg3));
-	    if (!is_error(ret)) {
-		    if (arg4 && put_user_sal(ret, arg4))
-			    goto efault;
-		    ret = 0;
-	    }
-	    unlock_user(p, arg2, ret);
-	    break;
+        if (!(p = lock_user(VERIFY_WRITE, arg2, arg3, 0)))
+            goto efault;
+        if (arg3 == 0)
+            ret = 0;
+        else
+            ret = get_errno(read(arg1, p, arg3));
+        if (!is_error(ret)) {
+            if (arg4 && put_user_sal(ret, arg4))
+                goto efault;
+            ret = 0;
+        }
+        unlock_user(p, arg2, ret);
+        break;
 
-	case 4: /* fdwait */
-		ret = do_select(arg1, arg2, arg3, arg4);
-		if (ret >= 0) {
-			if (arg5 && put_user_sal(ret, arg5))
-				goto efault;
-			ret = 0;
-		}
-		break;
+    case 4: /* fdwait */
+        ret = do_select(arg1, arg2, arg3, arg4);
+        if (ret >= 0) {
+            if (arg5 && put_user_sal(ret, arg5))
+                goto efault;
+            ret = 0;
+        }
+        break;
 
-	case 5: /* allocate */
+    case 5: /* allocate */
         if (!access_ok(VERIFY_WRITE, arg3, sizeof(abi_long)))
             goto efault;
         ret = get_errno(target_mmap(0, arg1, PROT_READ | PROT_WRITE | (arg2 ? PROT_EXEC: 0),
@@ -308,7 +308,7 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
         ret = get_errno(target_munmap(arg1, arg2));
         break;
 
-	case 7: /* random */
+    case 7: /* random */
         if (!(p = lock_user(VERIFY_WRITE, arg1, arg2, 0)))
             goto efault;
         for (i = 0; i < (abi_ulong)arg2; i++) {
