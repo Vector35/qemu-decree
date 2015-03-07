@@ -25,6 +25,7 @@
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include <sys/resource.h>
+#include <sys/socket.h>
 
 #include "qemu.h"
 #include "qemu-common.h"
@@ -34,13 +35,10 @@
 #include "qemu/envlist.h"
 #include "elf.h"
 
-char *exec_path;
-
 int singlestep;
-const char *filename;
 int gdbstub_port;
 static const char *cpu_model;
-unsigned long mmap_min_addr;
+unsigned long mmap_min_addr = DECREE_MMAP_MIN_ADDRESS;
 #if defined(CONFIG_USE_GUEST_BASE)
 unsigned long guest_base;
 int have_guest_base;
@@ -57,6 +55,8 @@ unsigned long reserved_va = 0xc0000000;
 unsigned long reserved_va;
 #endif
 #endif
+
+int binary_count;
 
 static void usage(void);
 
@@ -516,8 +516,8 @@ static void usage(void)
     int maxarglen;
     int maxenvlen;
 
-    printf("usage: qemu-" TARGET_NAME " [options] program [arguments...]\n"
-           "Linux CPU emulator (compiled for " TARGET_NAME " emulation)\n"
+    printf("usage: qemu-" TARGET_NAME " [options] binaries [...]\n"
+           "Cyber Grand Challenge DECREE emulator (compiled for " TARGET_NAME " emulation)\n"
            "\n"
            "Options and associated environment variables:\n"
            "\n");
@@ -616,10 +616,29 @@ static int parse_args(int argc, char **argv)
         usage();
     }
 
-    filename = argv[optind];
-    exec_path = argv[optind];
-
     return optind;
+}
+
+static void open_and_load_file(const char* filename,
+                               struct target_pt_regs * regs, struct image_info *info,
+                               struct linux_binprm *bprm)
+{
+    int execfd;
+    int ret;
+
+    execfd = open(filename, O_RDONLY);
+    if (execfd < 0) {
+        printf("Error while loading %s: %s\n", filename, strerror(errno));
+        _exit(1);
+    }
+
+    ret = loader_exec(execfd, filename, regs, info, bprm);
+    if (ret != 0) {
+        printf("Error while loading %s: %s\n", filename, strerror(-ret));
+        _exit(1);
+    }
+
+    close(execfd);
 }
 
 int main(int argc, char **argv)
@@ -631,8 +650,11 @@ int main(int argc, char **argv)
     CPUArchState *env;
     CPUState *cpu;
     int optind;
-    int ret;
-    int execfd;
+    int ret, exit_status;
+    int i;
+    pid_t* children;
+    int* ipc_sockets;
+    int is_parent;
 
     module_call_init(MODULE_INIT_QOM);
 
@@ -644,6 +666,20 @@ int main(int argc, char **argv)
     srand(time(NULL));
 
     optind = parse_args(argc, argv);
+
+    /* For multi-executable challenge binaries, we need to set up the IPC socket pairs.
+       Each executable has a socket pair associated with it, starting at descriptor 3. */
+    binary_count = argc - optind;
+    if (binary_count > 1) {
+        ipc_sockets = g_malloc0(sizeof(int) * binary_count * 2);
+
+        for (i = 0; i < binary_count; i++) {
+            if (socketpair(AF_UNIX, SOCK_STREAM, 0, &ipc_sockets[i * 2]) < 0) {
+                fprintf(stderr, "Unable to create socket pair for IPC\n");
+                _exit(1);
+            }
+        }
+    }
 
     /* Zero out regs */
     memset(regs, 0, sizeof(struct target_pt_regs));
@@ -712,25 +748,9 @@ int main(int argc, char **argv)
             }
         }
     }
+#else
+    fprintf(stderr, "Guest base is disabled, memory layout will not be accurate\n");
 #endif /* CONFIG_USE_GUEST_BASE */
-
-    /*
-     * Read in mmap_min_addr kernel parameter.  This value is used
-     * When loading the ELF image to determine whether guest_base
-     * is needed.  It is also used in mmap_find_vma.
-     */
-    {
-        FILE *fp;
-
-        if ((fp = fopen("/proc/sys/vm/mmap_min_addr", "r")) != NULL) {
-            unsigned long tmp;
-            if (fscanf(fp, "%lu", &tmp) == 1) {
-                mmap_min_addr = tmp;
-                qemu_log("host mmap_min_addr=0x%lx\n", mmap_min_addr);
-            }
-            fclose(fp);
-        }
-    }
 
     ts = g_malloc0 (sizeof(TaskState));
     init_task_state(ts);
@@ -740,19 +760,73 @@ int main(int argc, char **argv)
     cpu->opaque = ts;
     task_settid(ts);
 
-    execfd = qemu_getauxval(AT_EXECFD);
-    if (execfd == 0) {
-        execfd = open(filename, O_RDONLY);
-        if (execfd < 0) {
-            printf("Error while loading %s: %s\n", filename, strerror(errno));
-            _exit(1);
-        }
-    }
+    /* Challenge binaries can be composed of one or more executables, if it is a single
+       executable, start running it immediately as there is no setup necessary */
+    binary_count = argc - optind;
+    if (binary_count == 1) {
+        open_and_load_file(argv[optind], regs, info, &bprm);
+    } else {
+        signal(SIGCHLD, SIG_IGN);
 
-    ret = loader_exec(execfd, filename, regs, info, &bprm);
-    if (ret != 0) {
-        printf("Error while loading %s: %s\n", filename, strerror(-ret));
-        _exit(1);
+        /* Multi-executable binaries need to create child processes for each executable */
+        children = g_malloc0(sizeof(pid_t) * binary_count);
+        is_parent = 1;
+        for (i = 0; i < binary_count; i++) {
+            /* Create a child process and execute the binary */
+            children[i] = fork();
+            if (children[i] == 0) {
+                is_parent = 0;
+                open_and_load_file(argv[optind + i], regs, info, &bprm);
+                break;
+            }
+        }
+
+        if (is_parent) {
+            /* Close IPC sockets on parent so that children can terminate cleanly */
+            for (i = 0; i < binary_count; i++) {
+                close(3 + 2 * i);
+                close(4 + 2 * i);
+            }
+
+            /* Parent should wait for all children to exit and return a combined status code */
+            exit_status = 0;
+
+            for (i = 0; i < binary_count; i++) {
+                waitpid(children[i], &ret, 0);
+
+                if (!exit_status && WIFEXITED(ret))
+                    exit_status = WEXITSTATUS(ret);
+                if ((exit_status >= 0) && WIFSIGNALED(ret) && WTERMSIG(ret) != SIGUSR1)
+                    exit_status = -WTERMSIG(ret);
+            }
+
+            if (exit_status < 0) {
+                /* One or more children crashed, report this to the caller */
+                struct rlimit rlim = {0, 0};
+                setrlimit(RLIMIT_CORE, &rlim);
+                raise(-exit_status);
+                pause();
+            }
+
+            _exit(exit_status);
+        } else {
+            /* Child process, move IPC socket pairs into the correct file descriptor */
+            for (i = 0; i < binary_count; i++) {
+                if (dup2(ipc_sockets[i * 2], 3 + i * 2) < 0) {
+                    fprintf(stderr, "Unable to redirect socket pair to IPC file descriptor\n");
+                    _exit(1);
+                }
+                if (ipc_sockets[i * 2] != (3 + i * 2))
+                    close(ipc_sockets[i * 2]);
+
+                if (dup2(ipc_sockets[1 + i * 2], 4 + i * 2) < 0) {
+                    fprintf(stderr, "Unable to redirect socket pair to IPC file descriptor\n");
+                    _exit(1);
+                }
+                if (ipc_sockets[1 + i * 2] != (4 + i * 2))
+                    close(ipc_sockets[1 + i * 2]);
+            }
+        }
     }
 
     if (qemu_log_enabled()) {

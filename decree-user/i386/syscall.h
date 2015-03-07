@@ -152,4 +152,4 @@ struct target_vm86plus_struct {
 #define TARGET_MLOCKALL_MCL_FUTURE  2
 
 #define DECREE_MAX_ALLOC_ADDRESS 0xb8000000
-
+#define DECREE_MMAP_MIN_ADDRESS 0x10000

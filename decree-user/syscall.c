@@ -257,6 +257,14 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
         break;
 
     case 2: /* transmit */
+        /* Because DECREE binaries are usually connected to a network socket, file descriptors
+           0 and 1 (stdin/stdout) are typically pointing at the same file object.  Some
+           challenge binaries violate the stdin/stdout standard and use the wrong descriptor
+           to transmit or receive.  Fix this up here so that binaries will run the same way
+           independent of whether they are going to stdin/stdout or a network socket. */
+        if (arg1 == 0)
+            arg1 = 1;
+
         if (!(p = lock_user(VERIFY_READ, arg2, arg3, 1)))
             goto efault;
         ret = get_errno(write(arg1, p, arg3));
@@ -269,6 +277,14 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
         break;
 
     case 3: /* receive */
+        /* Because DECREE binaries are usually connected to a network socket, file descriptors
+           0 and 1 (stdin/stdout) are typically pointing at the same file object.  Some
+           challenge binaries violate the stdin/stdout standard and use the wrong descriptor
+           to transmit or receive.  Fix this up here so that binaries will run the same way
+           independent of whether they are going to stdin/stdout or a network socket. */
+        if (arg1 == 1)
+            arg1 = 0;
+
         if (!(p = lock_user(VERIFY_WRITE, arg2, arg3, 0)))
             goto efault;
         if (arg3 == 0)

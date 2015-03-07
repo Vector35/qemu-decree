@@ -113,12 +113,12 @@ typedef struct TaskState {
     int signal_pending; /* non zero if a signal may be pending */
 } __attribute__((aligned(16))) TaskState;
 
-extern char *exec_path;
 void init_task_state(TaskState *ts);
 void task_settid(TaskState *);
 void stop_all_tasks(void);
 extern const char *qemu_uname_release;
 extern unsigned long mmap_min_addr;
+extern int binary_count;
 
 /* Read a good amount of data initially, to hopefully get all the
    program headers loaded.  */
