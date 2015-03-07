@@ -2556,7 +2556,7 @@ void cpu_x86_load_seg(CPUX86State *env, int seg_reg, int selector)
 {
 #if defined(CONFIG_DECREE_USER)
 	if ((selector & 0xfffc) == 0) { /* Null selector */
-		if (seg_reg == R_CS) {
+		if ((seg_reg == R_CS) || (seg_reg == R_SS)) {
             raise_exception_err(env, EXCP0D_GPF, selector);
 		} else {
         	cpu_x86_load_seg_cache(env, seg_reg, selector, 0, 0, 0);
