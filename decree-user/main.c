@@ -57,6 +57,7 @@ unsigned long reserved_va;
 #endif
 
 int binary_count;
+int timeout = 0;
 
 static void usage(void);
 
@@ -363,6 +364,18 @@ static void handle_arg_help(const char *arg)
     usage();
 }
 
+static void handle_arg_timeout(const char* arg)
+{
+    unsigned long long seconds;
+
+    if (parse_uint_full(arg, &seconds, 0) != 0 || seconds > INT_MAX) {
+        fprintf(stderr, "Invalid timeout: %s\n", arg);
+        exit(1);
+    }
+
+    timeout = (int)seconds;
+}
+
 static void handle_arg_log(const char *arg)
 {
     int mask;
@@ -483,6 +496,8 @@ static const struct qemu_argument arg_table[] = {
      "",           "print this help"},
     {"g",          "QEMU_GDB",         true,  handle_arg_gdb,
      "port",       "wait gdb connection to 'port'"},
+    {"t",          "QEMU_TIMEOUT",     true,  handle_arg_timeout,
+     "seconds",    "Maximum run time for the process"},
     {"cpu",        "QEMU_CPU",         true,  handle_arg_cpu,
      "model",      "select CPU (-cpu help for list)"},
 #if defined(CONFIG_USE_GUEST_BASE)
@@ -638,6 +653,10 @@ static void open_and_load_file(const char* filename,
     close(execfd);
 }
 
+static void sigchild_handler(int sig)
+{
+}
+
 int main(int argc, char **argv)
 {
     struct target_pt_regs regs1, *regs = &regs1;
@@ -765,7 +784,7 @@ int main(int argc, char **argv)
     if (binary_count == 1) {
         open_and_load_file(argv[optind], regs, info, &bprm);
     } else {
-        signal(SIGCHLD, SIG_IGN);
+        signal(SIGCHLD, sigchild_handler);
 
         /* Multi-executable binaries need to create child processes for each executable */
         children = g_malloc0(sizeof(pid_t) * binary_count);
@@ -826,6 +845,11 @@ int main(int argc, char **argv)
                     close(ipc_sockets[1 + i * 2]);
             }
         }
+    }
+
+    /* If a timeout has been set, activate it now */
+    if (timeout > 0) {
+        alarm(timeout);
     }
 
     if (qemu_log_enabled()) {

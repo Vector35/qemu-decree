@@ -135,8 +135,11 @@ class Runner(object):
         self.errors = 0
         self.full_passed = 0
 
-        resource.setrlimit(resource.RLIMIT_CORE, (resource.RLIM_INFINITY,
-                                                  resource.RLIM_INFINITY))
+        if self.should_debug:
+            resource.setrlimit(resource.RLIMIT_CORE, (resource.RLIM_INFINITY,
+                                                      resource.RLIM_INFINITY))
+        else:
+            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
     def background(self, cmd):
         process = Background(cmd)
@@ -207,11 +210,10 @@ class Runner(object):
     def start_cb(self):
         run_cmd = [os.path.join(os.path.dirname(__file__), 'qemu-decree')]
 
-        # if self.timeout > 0:
-        #     server_cmd += ['-t', '%d' % self.timeout]
-
-        # if self.should_debug:
-        #     server_cmd += ['--debug']
+        if self.timeout > 0:
+            run_cmd += ['-t', '%d' % self.timeout]
+        else:
+            run_cmd += ['-t', '15']
 
         for cb in self.cb_list:
             if self.directory is None:
@@ -223,14 +225,7 @@ class Runner(object):
         return self.background(run_cmd)
 
     def start_replay(self, cb, xml):
-        result = qemu_cb_replay.throw(cb, xml, self.timeout, self.should_debug)
-        self.passed += result[0]
-        self.failed += result[1]
-        self.full_passed += result[2]
-        self.errors += result[3]
-        if self.failure_ok:
-            return 0
-        return result[3]
+        return qemu_cb_replay.throw(cb, xml, self.timeout, self.should_debug)
 
     def verify_poll(self):
         # until a 'safe' DTD validation tool is available, we will just rely on
@@ -271,7 +266,9 @@ class Runner(object):
                 self.log.error('core expected, no cores identified')
                 return -1
 
-        return replay_result
+        if self.failure_ok:
+            return 0
+        return -replay_result[3]
 
     def run(self):
         self.log_packages()
@@ -297,9 +294,14 @@ class Runner(object):
             except TimeoutException:
                 cb.terminate()
 
+            self.passed += replay_result[0]
+            self.failed += replay_result[1]
+
             result = self.check_result(replay_result, sig)
             if result != 0:
+                self.errors += 1
                 break
+            self.full_passed += 1
 
         print "# total tests passed: %d" % self.passed
         print "# total tests failed: %d" % self.failed
