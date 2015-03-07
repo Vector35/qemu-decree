@@ -371,16 +371,6 @@ static void handle_arg_log_filename(const char *arg)
     qemu_set_log_filename(arg);
 }
 
-static void handle_arg_pagesize(const char *arg)
-{
-    qemu_host_page_size = atoi(arg);
-    if (qemu_host_page_size == 0 ||
-        (qemu_host_page_size & (qemu_host_page_size - 1)) != 0) {
-        fprintf(stderr, "page size must be a power of two\n");
-        exit(1);
-    }
-}
-
 static void handle_arg_randseed(const char *arg)
 {
     unsigned long long seed;
@@ -497,8 +487,6 @@ static const struct qemu_argument arg_table[] = {
      "(use '-d help' for a list of items)"},
     {"D",          "QEMU_LOG_FILENAME", true, handle_arg_log_filename,
      "logfile",     "write logs to 'logfile' (default stderr)"},
-    {"p",          "QEMU_PAGESIZE",    true,  handle_arg_pagesize,
-     "pagesize",   "set the host page size to 'pagesize'"},
     {"singlestep", "QEMU_SINGLESTEP",  false, handle_arg_singlestep,
      "",           "run in singlestep mode"},
     {"strace",     "QEMU_STRACE",      false, handle_arg_strace,
@@ -516,7 +504,7 @@ static void usage(void)
     int maxarglen;
     int maxenvlen;
 
-    printf("usage: qemu-" TARGET_NAME " [options] binaries [...]\n"
+    printf("usage: qemu-decree [options] binaries [...]\n"
            "Cyber Grand Challenge DECREE emulator (compiled for " TARGET_NAME " emulation)\n"
            "\n"
            "Options and associated environment variables:\n"

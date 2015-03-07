@@ -14,9 +14,19 @@ QEMU_CFLAGS += -I.. -I$(SRC_PATH)/target-$(TARGET_BASE_ARCH) -DNEED_CPU_H
 QEMU_CFLAGS+=-I$(SRC_PATH)/include
 
 ifdef CONFIG_USER_ONLY
+ifdef CONFIG_DECREE_USER
+QEMU_PROG=qemu-decree
+QEMU_PROG_BUILD = $(QEMU_PROG)
+QEMU_CB_TEST_PROG = qemu-cb-test qemu_cb_replay.py
+qemu-cb-test: ../decree-user/qemu-cb-test
+	cp ../decree-user/qemu-cb-test qemu-cb-test
+qemu_cb_replay.py: ../decree-user/qemu_cb_replay.py
+	cp ../decree-user/qemu_cb_replay.py qemu_cb_replay.py
+else
 # user emulator name
 QEMU_PROG=qemu-$(TARGET_NAME)
 QEMU_PROG_BUILD = $(QEMU_PROG)
+endif
 else
 # system emulator name
 QEMU_PROG=qemu-system-$(TARGET_NAME)$(EXESUF)
@@ -31,7 +41,7 @@ QEMU_PROG_BUILD = $(QEMU_PROG)
 endif
 endif
 
-PROGS=$(QEMU_PROG) $(QEMU_PROGW)
+PROGS=$(QEMU_PROG) $(QEMU_PROGW) $(QEMU_CB_TEST_PROG)
 STPFILES=
 
 config-target.h: config-target.h-timestamp
