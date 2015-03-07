@@ -184,6 +184,9 @@ void helper_invlpg(CPUX86State *env, target_ulong addr)
 
 void helper_rdtsc(CPUX86State *env)
 {
+#ifdef CONFIG_DECREE_USER
+    raise_exception(env, EXCP0D_GPF);
+#else
     uint64_t val;
 
     if ((env->cr[4] & CR4_TSD_MASK) && ((env->hflags & HF_CPL_MASK) != 0)) {
@@ -194,16 +197,24 @@ void helper_rdtsc(CPUX86State *env)
     val = cpu_get_tsc(env) + env->tsc_offset;
     env->regs[R_EAX] = (uint32_t)(val);
     env->regs[R_EDX] = (uint32_t)(val >> 32);
+#endif
 }
 
 void helper_rdtscp(CPUX86State *env)
 {
+#ifdef CONFIG_DECREE_USER
+    raise_exception(env, EXCP0D_GPF);
+#else
     helper_rdtsc(env);
     env->regs[R_ECX] = (uint32_t)(env->tsc_aux);
+#endif
 }
 
 void helper_rdpmc(CPUX86State *env)
 {
+#ifdef CONFIG_DECREE_USER
+    raise_exception(env, EXCP0D_GPF);
+#else
     if ((env->cr[4] & CR4_PCE_MASK) && ((env->hflags & HF_CPL_MASK) != 0)) {
         raise_exception(env, EXCP0D_GPF);
     }
@@ -212,6 +223,7 @@ void helper_rdpmc(CPUX86State *env)
     /* currently unimplemented */
     qemu_log_mask(LOG_UNIMP, "x86: unimplemented rdpmc\n");
     raise_exception_err(env, EXCP06_ILLOP, 0);
+#endif
 }
 
 #if defined(CONFIG_USER_ONLY)

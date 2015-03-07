@@ -160,8 +160,6 @@ void cpu_loop(CPUArchState *env);
 char *target_strerror(int err);
 int get_osversion(void);
 void init_qemu_uname_release(void);
-void fork_start(void);
-void fork_end(int child);
 
 /* Creates the initial guest address space in the host memory space using
  * the given host start address hint and size.  The guest_start parameter
@@ -213,8 +211,6 @@ void mmap_unlock(void);
 abi_ulong mmap_find_vma(abi_ulong, abi_ulong);
 void cpu_list_lock(void);
 void cpu_list_unlock(void);
-void mmap_fork_start(void);
-void mmap_fork_end(int child);
 
 /* user access */
 

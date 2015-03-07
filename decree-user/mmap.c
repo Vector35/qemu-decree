@@ -48,22 +48,6 @@ void mmap_unlock(void)
     }
 }
 
-/* Grab lock to make sure things are in a consistent state after fork().  */
-void mmap_fork_start(void)
-{
-    if (mmap_lock_count)
-        abort();
-    pthread_mutex_lock(&mmap_mutex);
-}
-
-void mmap_fork_end(int child)
-{
-    if (child)
-        pthread_mutex_init(&mmap_mutex, NULL);
-    else
-        pthread_mutex_unlock(&mmap_mutex);
-}
-
 /* NOTE: all the constants are the HOST ones, but addresses are target. */
 int target_mprotect(abi_ulong start, abi_ulong len, int prot)
 {

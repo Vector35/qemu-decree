@@ -52,7 +52,7 @@ int have_guest_base;
  * This way we will never overlap with our own libraries or binaries or stack
  * or anything else that QEMU maps.
  */
-unsigned long reserved_va = 0xf7000000;
+unsigned long reserved_va = 0xc0000000;
 #else
 unsigned long reserved_va;
 #endif
@@ -88,39 +88,6 @@ static pthread_mutex_t exclusive_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t exclusive_cond = PTHREAD_COND_INITIALIZER;
 static pthread_cond_t exclusive_resume = PTHREAD_COND_INITIALIZER;
 static int pending_cpus;
-
-/* Make sure everything is in a consistent state for calling fork().  */
-void fork_start(void)
-{
-    pthread_mutex_lock(&tcg_ctx.tb_ctx.tb_lock);
-    pthread_mutex_lock(&exclusive_lock);
-    mmap_fork_start();
-}
-
-void fork_end(int child)
-{
-    mmap_fork_end(child);
-    if (child) {
-        CPUState *cpu, *next_cpu;
-        /* Child processes created by fork() only have a single thread.
-           Discard information about the parent threads.  */
-        CPU_FOREACH_SAFE(cpu, next_cpu) {
-            if (cpu != thread_cpu) {
-                QTAILQ_REMOVE(&cpus, thread_cpu, node);
-            }
-        }
-        pending_cpus = 0;
-        pthread_mutex_init(&exclusive_lock, NULL);
-        pthread_mutex_init(&cpu_list_mutex, NULL);
-        pthread_cond_init(&exclusive_cond, NULL);
-        pthread_cond_init(&exclusive_resume, NULL);
-        pthread_mutex_init(&tcg_ctx.tb_ctx.tb_lock, NULL);
-        gdbserver_fork((CPUArchState *)thread_cpu->env_ptr);
-    } else {
-        pthread_mutex_unlock(&exclusive_lock);
-        pthread_mutex_unlock(&tcg_ctx.tb_ctx.tb_lock);
-    }
-}
 
 /* Wait for pending exclusive operations to complete.  The exclusive lock
    must be held.  */
@@ -202,11 +169,6 @@ void cpu_list_unlock(void)
 
 void cpu_smm_update(CPUX86State *env)
 {
-}
-
-uint64_t cpu_get_tsc(CPUX86State *env)
-{
-    return cpu_get_real_ticks();
 }
 
 void cpu_loop(CPUX86State *env)
@@ -693,7 +655,7 @@ int main(int argc, char **argv)
 
     if (cpu_model == NULL) {
 #if defined(TARGET_I386)
-        cpu_model = "qemu32";
+        cpu_model = "Haswell";
 #else
         cpu_model = "any";
 #endif
