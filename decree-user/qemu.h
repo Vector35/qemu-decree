@@ -120,14 +120,6 @@ void stop_all_tasks(void);
 extern const char *qemu_uname_release;
 extern unsigned long mmap_min_addr;
 
-/* ??? See if we can avoid exposing so much of the loader internals.  */
-/*
- * MAX_ARG_PAGES defines the number of pages allocated for arguments
- * and envelope for the new program. 32 should suffice, this gives
- * a maximum env+arg of 128kB w/4KB pages!
- */
-#define MAX_ARG_PAGES 33
-
 /* Read a good amount of data initially, to hopefully get all the
    program headers loaded.  */
 #define BPRM_BUF_SIZE  1024
@@ -138,12 +130,9 @@ extern unsigned long mmap_min_addr;
  */
 struct linux_binprm {
         char buf[BPRM_BUF_SIZE] __attribute__((aligned));
-        void *page[MAX_ARG_PAGES];
         abi_ulong p;
 	int fd;
         int e_uid, e_gid;
-        int argc;
-        char **argv;
         char * filename;        /* Name of binary */
         int (*core_dump)(int, const CPUArchState *); /* coredump routine */
 };
@@ -151,7 +140,7 @@ struct linux_binprm {
 void do_init_thread(struct target_pt_regs *regs, struct image_info *infop);
 abi_ulong loader_build_argptr(int envc, int argc, abi_ulong sp,
                               abi_ulong stringp, int push_ptr);
-int loader_exec(int fdexec, const char *filename, char **argv,
+int loader_exec(int fdexec, const char *filename,
              struct target_pt_regs * regs, struct image_info *infop,
              struct linux_binprm *);
 
@@ -226,9 +215,6 @@ void cpu_list_lock(void);
 void cpu_list_unlock(void);
 void mmap_fork_start(void);
 void mmap_fork_end(int child);
-
-/* main.c */
-extern unsigned long guest_stack_size;
 
 /* user access */
 

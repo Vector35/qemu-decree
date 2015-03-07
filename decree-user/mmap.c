@@ -216,6 +216,9 @@ static abi_ulong mmap_find_vma_reserved(abi_ulong start, abi_ulong size)
     if (end_addr > RESERVED_VA) {
         end_addr = RESERVED_VA;
     }
+	if (end_addr > DECREE_MAX_ALLOC_ADDRESS) {
+		end_addr = DECREE_MAX_ALLOC_ADDRESS;
+	}
     addr = end_addr - qemu_host_page_size;
 
     while (1) {
@@ -224,6 +227,9 @@ static abi_ulong mmap_find_vma_reserved(abi_ulong start, abi_ulong size)
                 return (abi_ulong)-1;
             }
             end_addr = RESERVED_VA;
+			if (end_addr > DECREE_MAX_ALLOC_ADDRESS) {
+				end_addr = DECREE_MAX_ALLOC_ADDRESS;
+			}
             addr = end_addr - qemu_host_page_size;
             looped = 1;
             continue;

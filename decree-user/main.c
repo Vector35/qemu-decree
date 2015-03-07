@@ -38,9 +38,7 @@ char *exec_path;
 
 int singlestep;
 const char *filename;
-const char *argv0;
 int gdbstub_port;
-envlist_t *envlist;
 static const char *cpu_model;
 unsigned long mmap_min_addr;
 #if defined(CONFIG_USE_GUEST_BASE)
@@ -54,26 +52,13 @@ int have_guest_base;
  * This way we will never overlap with our own libraries or binaries or stack
  * or anything else that QEMU maps.
  */
-# ifdef TARGET_MIPS
-/* MIPS only supports 31 bits of virtual address space for user space */
-unsigned long reserved_va = 0x77000000;
-# else
 unsigned long reserved_va = 0xf7000000;
-# endif
 #else
 unsigned long reserved_va;
 #endif
 #endif
 
 static void usage(void);
-
-static const char *interp_prefix = CONFIG_QEMU_INTERP_PREFIX;
-const char *qemu_uname_release;
-
-/* XXX: on x86 MAP_GROWSDOWN only works if ESP <= address + 32, so
-   we allocate a bigger stack. Need a better solution, for example
-   by remapping the process stack directly at the right place */
-unsigned long guest_stack_size = 8 * 1024 * 1024UL;
 
 void gemu_log(const char *fmt, ...)
 {
@@ -222,37 +207,6 @@ void cpu_smm_update(CPUX86State *env)
 uint64_t cpu_get_tsc(CPUX86State *env)
 {
     return cpu_get_real_ticks();
-}
-
-static void write_dt(void *ptr, unsigned long addr, unsigned long limit,
-                     int flags)
-{
-    unsigned int e1, e2;
-    uint32_t *p;
-    e1 = (addr << 16) | (limit & 0xffff);
-    e2 = ((addr >> 16) & 0xff) | (addr & 0xff000000) | (limit & 0x000f0000);
-    e2 |= flags;
-    p = ptr;
-    p[0] = tswap32(e1);
-    p[1] = tswap32(e2);
-}
-
-static uint64_t *idt_table;
-static void set_gate(void *ptr, unsigned int type, unsigned int dpl,
-                     uint32_t addr, unsigned int sel)
-{
-    uint32_t *p, e1, e2;
-    e1 = (addr & 0xffff) | (sel << 16);
-    e2 = (addr & 0xffff0000) | 0x8000 | (dpl << 13) | (type << 8);
-    p = ptr;
-    p[0] = tswap32(e1);
-    p[1] = tswap32(e2);
-}
-
-/* only dpl matters as we do only user space emulation */
-static void set_idt(int n, unsigned int dpl)
-{
-    set_gate(idt_table + n, 0, dpl, 0, 0);
 }
 
 void cpu_loop(CPUX86State *env)
@@ -455,55 +409,6 @@ static void handle_arg_log_filename(const char *arg)
     qemu_set_log_filename(arg);
 }
 
-static void handle_arg_set_env(const char *arg)
-{
-    char *r, *p, *token;
-    r = p = strdup(arg);
-    while ((token = strsep(&p, ",")) != NULL) {
-        if (envlist_setenv(envlist, token) != 0) {
-            usage();
-        }
-    }
-    free(r);
-}
-
-static void handle_arg_unset_env(const char *arg)
-{
-    char *r, *p, *token;
-    r = p = strdup(arg);
-    while ((token = strsep(&p, ",")) != NULL) {
-        if (envlist_unsetenv(envlist, token) != 0) {
-            usage();
-        }
-    }
-    free(r);
-}
-
-static void handle_arg_argv0(const char *arg)
-{
-    argv0 = strdup(arg);
-}
-
-static void handle_arg_stack_size(const char *arg)
-{
-    char *p;
-    guest_stack_size = strtoul(arg, &p, 0);
-    if (guest_stack_size == 0) {
-        usage();
-    }
-
-    if (*p == 'M') {
-        guest_stack_size *= 1024 * 1024;
-    } else if (*p == 'k' || *p == 'K') {
-        guest_stack_size *= 1024;
-    }
-}
-
-static void handle_arg_ld_prefix(const char *arg)
-{
-    interp_prefix = strdup(arg);
-}
-
 static void handle_arg_pagesize(const char *arg)
 {
     qemu_host_page_size = atoi(arg);
@@ -528,11 +433,6 @@ static void handle_arg_randseed(const char *arg)
 static void handle_arg_gdb(const char *arg)
 {
     gdbstub_port = atoi(arg);
-}
-
-static void handle_arg_uname(const char *arg)
-{
-    qemu_uname_release = strdup(arg);
 }
 
 static void handle_arg_cpu(const char *arg)
@@ -622,20 +522,8 @@ static const struct qemu_argument arg_table[] = {
      "",           "print this help"},
     {"g",          "QEMU_GDB",         true,  handle_arg_gdb,
      "port",       "wait gdb connection to 'port'"},
-    {"L",          "QEMU_LD_PREFIX",   true,  handle_arg_ld_prefix,
-     "path",       "set the elf interpreter prefix to 'path'"},
-    {"s",          "QEMU_STACK_SIZE",  true,  handle_arg_stack_size,
-     "size",       "set the stack size to 'size' bytes"},
     {"cpu",        "QEMU_CPU",         true,  handle_arg_cpu,
      "model",      "select CPU (-cpu help for list)"},
-    {"E",          "QEMU_SET_ENV",     true,  handle_arg_set_env,
-     "var=value",  "sets targets environment variable (see below)"},
-    {"U",          "QEMU_UNSET_ENV",   true,  handle_arg_unset_env,
-     "var",        "unsets targets environment variable (see below)"},
-    {"0",          "QEMU_ARGV0",       true,  handle_arg_argv0,
-     "argv0",      "forces target process argv[0] to be 'argv0'"},
-    {"r",          "QEMU_UNAME",       true,  handle_arg_uname,
-     "uname",      "set qemu uname release string to 'uname'"},
 #if defined(CONFIG_USE_GUEST_BASE)
     {"B",          "QEMU_GUEST_BASE",  true,  handle_arg_guest_base,
      "address",    "set guest_base address to 'address'"},
@@ -705,27 +593,6 @@ static void usage(void)
                     arginfo->help);
         }
     }
-
-    printf("\n"
-           "Defaults:\n"
-           "QEMU_LD_PREFIX  = %s\n"
-           "QEMU_STACK_SIZE = %ld byte\n",
-           interp_prefix,
-           guest_stack_size);
-
-    printf("\n"
-           "You can use -E and -U options or the QEMU_SET_ENV and\n"
-           "QEMU_UNSET_ENV environment variables to set and unset\n"
-           "environment variables for the target process.\n"
-           "It is possible to provide several variables by separating them\n"
-           "by commas in getsubopt(3) style. Additionally it is possible to\n"
-           "provide the -E and -U options multiple times.\n"
-           "The following lines are equivalent:\n"
-           "    -E var1=val2 -E var2=val2 -U LD_PRELOAD -U LD_DEBUG\n"
-           "    -E var1=val2,var2=val2 -U LD_PRELOAD,LD_DEBUG\n"
-           "    QEMU_SET_ENV=var1=val2,var2=val2 QEMU_UNSET_ENV=LD_PRELOAD,LD_DEBUG\n"
-           "Note that if you provide several changes to a single variable\n"
-           "the last change will stay in effect.\n");
 
     exit(1);
 }
@@ -802,24 +669,10 @@ int main(int argc, char **argv)
     CPUArchState *env;
     CPUState *cpu;
     int optind;
-    char **target_argv;
-    int target_argc;
-    int i;
     int ret;
     int execfd;
 
     module_call_init(MODULE_INIT_QOM);
-
-    /* Read the stack limit from the kernel.  If it's "unlimited",
-       then we can do little else besides use the default.  */
-    {
-        struct rlimit lim;
-        if (getrlimit(RLIMIT_STACK, &lim) == 0
-            && lim.rlim_cur != RLIM_INFINITY
-            && lim.rlim_cur == (target_long)lim.rlim_cur) {
-            guest_stack_size = lim.rlim_cur;
-        }
-    }
 
     cpu_model = NULL;
 #if defined(cpudef_setup)
@@ -837,9 +690,6 @@ int main(int argc, char **argv)
     memset(info, 0, sizeof(struct image_info));
 
     memset(&bprm, 0, sizeof (bprm));
-
-    /* Scan interp_prefix dir for replacement files. */
-    init_paths(interp_prefix);
 
     if (cpu_model == NULL) {
 #if defined(TARGET_I386)
@@ -889,7 +739,15 @@ int main(int argc, char **argv)
         }
 
         if (reserved_va) {
-            mmap_next_start = reserved_va;
+			if (reserved_va >= DECREE_MAX_ALLOC_ADDRESS) {
+				/*
+				 * Match the decree starting dynamic allocation address if the guest
+				 * space is big enough.
+				 */
+				mmap_next_start = DECREE_MAX_ALLOC_ADDRESS;
+			} else {
+	            mmap_next_start = reserved_va;
+			}
         }
     }
 #endif /* CONFIG_USE_GUEST_BASE */
@@ -912,29 +770,6 @@ int main(int argc, char **argv)
         }
     }
 
-    /*
-     * Prepare copy of argv vector for target.
-     */
-    target_argc = argc - optind;
-    target_argv = calloc(target_argc + 1, sizeof (char *));
-    if (target_argv == NULL) {
-	(void) fprintf(stderr, "Unable to allocate memory for target_argv\n");
-	exit(1);
-    }
-
-    /*
-     * If argv0 is specified (using '-0' switch) we replace
-     * argv[0] pointer with the given one.
-     */
-    i = 0;
-    if (argv0 != NULL) {
-        target_argv[i++] = strdup(argv0);
-    }
-    for (; i < target_argc; i++) {
-        target_argv[i] = strdup(argv[optind + i]);
-    }
-    target_argv[target_argc] = NULL;
-
     ts = g_malloc0 (sizeof(TaskState));
     init_task_state(ts);
     /* build Task State */
@@ -952,8 +787,7 @@ int main(int argc, char **argv)
         }
     }
 
-    ret = loader_exec(execfd, filename, target_argv, regs,
-        info, &bprm);
+    ret = loader_exec(execfd, filename, regs, info, &bprm);
     if (ret != 0) {
         printf("Error while loading %s: %s\n", filename, strerror(-ret));
         _exit(1);
@@ -1011,57 +845,20 @@ int main(int argc, char **argv)
     env->regs[R_ESP] = regs->esp;
     env->eip = regs->eip;
 
-    /* linux interrupt setup */
-    env->idt.limit = 255;
-    env->idt.base = target_mmap(0, sizeof(uint64_t) * (env->idt.limit + 1),
-                                PROT_READ|PROT_WRITE,
-                                MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
-    idt_table = g2h(env->idt.base);
-    set_idt(0, 0);
-    set_idt(1, 0);
-    set_idt(2, 0);
-    set_idt(3, 3);
-    set_idt(4, 3);
-    set_idt(5, 0);
-    set_idt(6, 0);
-    set_idt(7, 0);
-    set_idt(8, 0);
-    set_idt(9, 0);
-    set_idt(10, 0);
-    set_idt(11, 0);
-    set_idt(12, 0);
-    set_idt(13, 0);
-    set_idt(14, 0);
-    set_idt(15, 0);
-    set_idt(16, 0);
-    set_idt(17, 0);
-    set_idt(18, 0);
-    set_idt(19, 0);
-    set_idt(0x80, 3);
+    /* Set up IDT and GDT addresses to look like a Linux system, these will not actually be
+	 * used during execution. */
+    env->idt.limit = 0x7ff;
+	env->idt.base = 0xffffb000;
+	env->gdt.limit = 0xff;
+	env->gdt.base = 0xc1436000;
 
     /* linux segment setup */
-    {
-        uint64_t *gdt_table;
-        env->gdt.base = target_mmap(0, sizeof(uint64_t) * TARGET_GDT_ENTRIES,
-                                    PROT_READ|PROT_WRITE,
-                                    MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
-        env->gdt.limit = sizeof(uint64_t) * TARGET_GDT_ENTRIES - 1;
-        gdt_table = g2h(env->gdt.base);
-        write_dt(&gdt_table[__USER_CS >> 3], 0, 0xfffff,
-                 DESC_G_MASK | DESC_B_MASK | DESC_P_MASK | DESC_S_MASK |
-                 (3 << DESC_DPL_SHIFT) | (0xa << DESC_TYPE_SHIFT));
-        write_dt(&gdt_table[__USER_DS >> 3], 0, 0xfffff,
-                 DESC_G_MASK | DESC_B_MASK | DESC_P_MASK | DESC_S_MASK |
-                 (3 << DESC_DPL_SHIFT) | (0x2 << DESC_TYPE_SHIFT));
-    }
     cpu_x86_load_seg(env, R_CS, __USER_CS);
     cpu_x86_load_seg(env, R_SS, __USER_DS);
     cpu_x86_load_seg(env, R_DS, __USER_DS);
     cpu_x86_load_seg(env, R_ES, __USER_DS);
     cpu_x86_load_seg(env, R_FS, __USER_DS);
     cpu_x86_load_seg(env, R_GS, __USER_DS);
-    /* This hack makes Wine work... */
-    env->segs[R_FS].selector = 0;
 #else
 #error unsupported target CPU
 #endif

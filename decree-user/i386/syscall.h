@@ -1,6 +1,6 @@
 /* default linux values for the selectors */
-#define __USER_CS	(0x23)
-#define __USER_DS	(0x2B)
+#define __USER_CS	(0x73)
+#define __USER_DS	(0x7B)
 
 struct target_pt_regs {
 	long ebx;
@@ -150,3 +150,6 @@ struct target_vm86plus_struct {
 #define TARGET_MINSIGSTKSZ 2048
 #define TARGET_MLOCKALL_MCL_CURRENT 1
 #define TARGET_MLOCKALL_MCL_FUTURE  2
+
+#define DECREE_MAX_ALLOC_ADDRESS 0xb8000000
+

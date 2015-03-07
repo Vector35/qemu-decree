@@ -1109,6 +1109,11 @@ static void do_interrupt_real(CPUX86State *env, int intno, int is_int,
 static void do_interrupt_user(CPUX86State *env, int intno, int is_int,
                               int error_code, target_ulong next_eip)
 {
+#if defined(CONFIG_DECREE_USER)
+	if (is_int && (intno != 3) && (intno != 0x80)) {
+        raise_exception_err(env, EXCP0D_GPF, (intno << 3) + 2);
+	}
+#else
     SegmentCache *dt;
     target_ulong ptr;
     int dpl, cpl, shift;
@@ -1129,6 +1134,7 @@ static void do_interrupt_user(CPUX86State *env, int intno, int is_int,
     if (is_int && dpl < cpl) {
         raise_exception_err(env, EXCP0D_GPF, (intno << shift) + 2);
     }
+#endif
 
     /* Since we emulate only user space, we cannot do more than
        exiting the emulation with the suitable exception and error
@@ -2548,6 +2554,33 @@ void helper_verw(CPUX86State *env, target_ulong selector1)
 #if defined(CONFIG_USER_ONLY)
 void cpu_x86_load_seg(CPUX86State *env, int seg_reg, int selector)
 {
+#if defined(CONFIG_DECREE_USER)
+	if ((selector & 0xfffc) == 0) { /* Null selector */
+		if (seg_reg == R_CS) {
+            raise_exception_err(env, EXCP0D_GPF, selector);
+		} else {
+        	cpu_x86_load_seg_cache(env, seg_reg, selector, 0, 0, 0);
+		}
+	} else if (selector == 0x73) { /* Code segment */
+		if (seg_reg == R_SS) {
+            raise_exception_err(env, EXCP0D_GPF, selector);
+		} else {
+			cpu_x86_load_seg_cache(env, seg_reg, selector, 0, 0xfffff,
+			                       DESC_G_MASK | DESC_B_MASK | DESC_P_MASK | DESC_S_MASK |
+			                       (3 << DESC_DPL_SHIFT) | (0xa << DESC_TYPE_SHIFT));
+		}
+	} else if (selector == 0x7b) { /* Data segment */
+		if (seg_reg == R_CS) {
+            raise_exception_err(env, EXCP0D_GPF, selector);
+		} else {
+			cpu_x86_load_seg_cache(env, seg_reg, selector, 0, 0xffffffff,
+			                       DESC_G_MASK | DESC_B_MASK | DESC_P_MASK | DESC_S_MASK |
+			                       (3 << DESC_DPL_SHIFT) | (0x2 << DESC_TYPE_SHIFT));
+		}
+	} else {
+        raise_exception_err(env, EXCP0D_GPF, selector);
+	}
+#else
     if (!(env->cr[0] & CR0_PE_MASK) || (env->eflags & VM_MASK)) {
         int dpl = (env->eflags & VM_MASK) ? 3 : 0;
         selector &= 0xffff;
@@ -2558,6 +2591,7 @@ void cpu_x86_load_seg(CPUX86State *env, int seg_reg, int selector)
     } else {
         helper_load_seg(env, seg_reg, selector);
     }
+#endif
 }
 #endif
 

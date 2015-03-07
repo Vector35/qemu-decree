@@ -26,17 +26,6 @@ abi_long memcpy_to_target(abi_ulong dest, const void *src,
     return 0;
 }
 
-static int count(char ** vec)
-{
-    int		i;
-
-    for(i = 0; *vec; i++) {
-        vec++;
-    }
-
-    return(i);
-}
-
 static int prepare_binprm(struct linux_binprm *bprm)
 {
     struct stat		st;
@@ -85,19 +74,15 @@ static int prepare_binprm(struct linux_binprm *bprm)
     return retval;
 }
 
-int loader_exec(int fdexec, const char *filename, char **argv,
+int loader_exec(int fdexec, const char *filename,
              struct target_pt_regs * regs, struct image_info *infop,
              struct linux_binprm *bprm)
 {
     int retval;
-    int i;
 
-    bprm->p = TARGET_PAGE_SIZE*MAX_ARG_PAGES-sizeof(unsigned int);
-    memset(bprm->page, 0, sizeof(bprm->page));
+    bprm->p = 0xbaaab000;
     bprm->fd = fdexec;
     bprm->filename = (char *)filename;
-    bprm->argc = count(argv);
-    bprm->argv = argv;
 
     retval = prepare_binprm(bprm);
 
@@ -118,9 +103,5 @@ int loader_exec(int fdexec, const char *filename, char **argv,
         return retval;
     }
 
-    /* Something went wrong, return the inode and free the argument pages*/
-    for (i=0 ; i<MAX_ARG_PAGES ; i++) {
-        g_free(bprm->page[i]);
-    }
     return(retval);
 }
