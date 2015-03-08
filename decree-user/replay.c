@@ -214,6 +214,7 @@ int replay_close(int signal)
 
     if (writing_replay) {
         /* When closing a record session, add an end event to track the time of exit and the signal if any. */
+        start_wall_time = 0;
         replay_write_event(REPLAY_EVENT_TERMINATE, 0, signal);
     }
 
