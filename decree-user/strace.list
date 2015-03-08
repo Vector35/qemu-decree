@@ -3,7 +3,7 @@
  * that corresponding print functions are able to handle string
  * locking correctly (see strace.c).
  */
-{ 1, "terminate" , "%s(%d)", NULL, NULL },
+{ 1, "terminate" , NULL, print_terminate, NULL },
 { 2, "transmit" , NULL, print_transmit_entry, print_transmit_return },
 { 3, "receive" , NULL, print_receive_entry, print_receive_return },
 { 4, "fdwait" , NULL, print_fdwait_entry, print_fdwait_return },

@@ -397,6 +397,14 @@ print_random_return(const struct syscallname *scname, abi_long ret,
     print_return(-ret);
 }
 
+static void
+print_terminate(const struct syscallname *scname,
+                abi_long arg1, abi_long arg2, abi_long arg3,
+                abi_long arg4, abi_long arg5, abi_long arg6)
+{
+    gemu_log("%s(" TARGET_ABI_FMT_ld ")\n", scname->name, arg1);
+}
+
 #undef UNUSED
 
 /*

@@ -6,9 +6,6 @@ static int multi_binary_replay = 0;
 static uint32_t replay_flags = 0;
 static uint32_t start_wall_time = 0;
 
-static int has_next_event;
-static struct replay_event next_replay_event;
-
 static int next_global_ordering_index()
 {
     return __sync_fetch_and_add(&shared->global_ordering_index, 1);
@@ -134,8 +131,6 @@ int replay_open(const char* filename)
     replay_flags = hdr.flags;
     binary_count = hdr.binary_count;
     random_seed = hdr.seed;
-
-    has_next_event = replay_read(&next_replay_event, sizeof(next_replay_event));
     return 1;
 }
 
@@ -252,26 +247,10 @@ void* read_replay_event(struct replay_event* evt)
 {
     void* data;
 
-    if (!has_next_event) {
+    if (!replay_read(evt, sizeof(struct replay_event))) {
         fprintf(stderr, "Replay file truncated\n");
         abort();
     }
-
-    /* For multi-binary replays, do only one syscall at a time to guarantee the original ordering */
-    if (multi_binary_replay) {
-        pthread_mutex_lock(&shared->syscall_ordering_mutex);
-
-        while (next_replay_event.global_ordering != shared->global_ordering_index) {
-            /* This syscall is not supposed to happen yet according to the global ordering stored
-               in the replay file.  Wait for the other processes to catch up. */
-            if (pthread_cond_wait(&shared->syscall_ordering_cond, &shared->syscall_ordering_mutex) != 0) {
-                fprintf(stderr, "Replay synchronization failed\n");
-                abort();
-            }
-        }
-    }
-
-    memcpy(evt, &next_replay_event, sizeof(next_replay_event));
 
     if (evt->data_length > (1 << 30)) {
         fprintf(stderr, "Replay event data length too large\n");
@@ -284,7 +263,20 @@ void* read_replay_event(struct replay_event* evt)
         abort();
     }
 
-    has_next_event = replay_read(&next_replay_event, sizeof(next_replay_event));
+    /* For multi-binary replays, do only one syscall at a time to guarantee the original ordering */
+    if (multi_binary_replay) {
+        pthread_mutex_lock(&shared->syscall_ordering_mutex);
+
+        while (evt->global_ordering != shared->global_ordering_index) {
+            /* This syscall is not supposed to happen yet according to the global ordering stored
+               in the replay file.  Wait for the other processes to catch up. */
+            if (pthread_cond_wait(&shared->syscall_ordering_cond, &shared->syscall_ordering_mutex) != 0) {
+                fprintf(stderr, "Replay synchronization failed\n");
+                abort();
+            }
+        }
+    }
+
     return data;
 }
 

@@ -885,6 +885,10 @@ int main(int argc, char **argv)
         fprintf(stderr, "Expected one replay file for each binary.\n");
         _exit(1);
     }
+    if ((replay_playback_count > 1) && (binary_count == 1)) {
+        fprintf(stderr, "Too many replay files given.\n");
+        _exit(1);
+    }
 
     /* Grab starting reference time before starting binaries, this must be shared among
        all running binaries to have a common reference point. */
