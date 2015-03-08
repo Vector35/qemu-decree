@@ -1,7 +1,10 @@
+#include <zlib.h>
 #include "qemu.h"
 
 static int replay_fd = -1;
+static gzFile replay_zlib_file;
 static int reading_replay = 0;
+static int reading_compressed = 0;
 static int writing_replay = 0;
 static int multi_binary_replay = 0;
 static uint32_t replay_flags = 0;
@@ -78,6 +81,10 @@ int replay_create(const char* filename, uint32_t flags, uint32_t seed)
 
 static int replay_read(void* data, size_t len)
 {
+    if (reading_compressed) {
+        return gzread(replay_zlib_file, data, (unsigned)len) == len;
+    }
+
     while (len > 0) {
         int result = read(replay_fd, data, len);
         if (result < 0) {
@@ -102,30 +109,42 @@ int replay_open(const char* filename)
        be overwritten during the replay process to ensure the file descriptor state is valid. */
     multi_binary_replay = (binary_count > 1);
 
+    reading_compressed = 0;
     replay_fd = open(filename, O_RDONLY);
     if (replay_fd < 0) {
         fprintf(stderr, "Replay file '%s' could not be opened\n", filename);
         return 0;
     }
 
-    if (!replay_read(&hdr, sizeof(hdr))) {
-        fprintf(stderr, "Reading from replay file failed\n");
+    if ((!replay_read(&hdr, sizeof(hdr))) || (hdr.magic != REPLAY_MAGIC)) {
+        /* Magic is not valid, check for gzip */
         close(replay_fd);
         replay_fd = -1;
-        return 0;
-    }
 
-    if (hdr.magic != REPLAY_MAGIC) {
-        fprintf(stderr, "File given is not a valid replay file\n");
-        close(replay_fd);
-        replay_fd = -1;
-        return 0;
+        reading_compressed = 1;
+        replay_zlib_file = gzopen(filename, "rb");
+        if (!replay_zlib_file) {
+            fprintf(stderr, "File given is not a valid replay file\n");
+            return 0;
+        }
+
+        if ((!replay_read(&hdr, sizeof(hdr))) || (hdr.magic != REPLAY_MAGIC)) {
+            fprintf(stderr, "File given is not a valid replay file\n");
+            gzclose(replay_zlib_file);
+            replay_zlib_file = NULL;
+            return 0;
+        }
     }
 
     if (hdr.version != REPLAY_VERSION) {
         fprintf(stderr, "Replay file is version %d, current is %d, not opening\n", hdr.version, REPLAY_VERSION);
-        close(replay_fd);
-        replay_fd = -1;
+        if (reading_compressed) {
+            gzclose(replay_zlib_file);
+            replay_zlib_file = NULL;
+        } else {
+            close(replay_fd);
+            replay_fd = -1;
+        }
         return 0;
     }
 
@@ -140,7 +159,7 @@ int replay_close(int signal)
 {
     int result = 1;
 
-    if (replay_fd == -1)
+    if ((!reading_replay) && (!writing_replay))
         return 1;
 
     if (reading_replay) {
@@ -174,8 +193,13 @@ int replay_close(int signal)
         replay_write_event(REPLAY_EVENT_TERMINATE, 0, signal);
     }
 
-    close(replay_fd);
-    replay_fd = -1;
+    if (reading_replay && reading_compressed) {
+        gzclose(replay_zlib_file);
+        replay_zlib_file = NULL;
+    } else {
+        close(replay_fd);
+        replay_fd = -1;
+    }
     reading_replay = 0;
     writing_replay = 0;
     return result;
