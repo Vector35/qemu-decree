@@ -2,6 +2,7 @@
 
 static int replay_fd = -1;
 static int reading_replay = 0;
+static int writing_replay = 0;
 static int multi_binary_replay = 0;
 static uint32_t replay_flags = 0;
 static uint32_t start_wall_time = 0;
@@ -64,6 +65,7 @@ int replay_create(const char* filename, uint32_t flags, uint32_t seed)
     }
 
     replay_flags = flags;
+    writing_replay = 1;
 
     hdr.magic = REPLAY_MAGIC;
     hdr.version = REPLAY_VERSION;
@@ -134,14 +136,49 @@ int replay_open(const char* filename)
     return 1;
 }
 
-void replay_close(void)
+int replay_close(int signal)
 {
+    int result = 1;
+
     if (replay_fd == -1)
-        return;
+        return 1;
+
+    if (reading_replay) {
+        /* When playing back, ensure that the termination condition is expected. The termination event
+           does not have a global ordering index, so do not synchronize here. */
+        struct replay_event evt;
+
+        if ((signal == TARGET_SIGINT) || (signal == TARGET_SIGABRT)) {
+            /* Do not validate termination condition when user interrupts the replay or the replay aborts */
+            result = 1;
+        } else if (!replay_read(&evt, sizeof(struct replay_event))) {
+            fprintf(stderr, "Replay file truncated\n");
+            result = 0;
+        } else if (evt.event_id != REPLAY_EVENT_TERMINATE) {
+            fprintf(stderr, "Process terminated early\n");
+            result = 0;
+        } else if ((signal == 0) && (evt.result != 0)) {
+            fprintf(stderr, "Expected signal %d, but process terminated normally\n", evt.result);
+            result = 0;
+        } else if ((signal != 0) && (evt.result == 0)) {
+            fprintf(stderr, "Unexpected signal %d during replay\n", signal);
+            result = 0;
+        } else if (signal != evt.result) {
+            fprintf(stderr, "Expected signal %d, got signal %d\n", evt.result, signal);
+            result = 0;
+        }
+    }
+
+    if (writing_replay) {
+        /* When closing a record session, add an end event to track the time of exit and the signal if any. */
+        replay_write_event(REPLAY_EVENT_TERMINATE, 0, signal);
+    }
 
     close(replay_fd);
     replay_fd = -1;
     reading_replay = 0;
+    writing_replay = 0;
+    return result;
 }
 
 void replay_begin_event()
@@ -164,7 +201,16 @@ void replay_write_event(uint16_t id, uint16_t fd, uint32_t result)
 
     evt.event_id = id;
     evt.fd = fd;
-    evt.global_ordering = next_global_ordering_index();
+
+    if (id == REPLAY_EVENT_TERMINATE) {
+        /* Termination event should not increment global ordering, to avoid locking while in a signal
+           handler.  A process terminating will not impact the other processes, so it is safe. The
+           original order will still be recoverable using the wall time fields. */
+        evt.global_ordering = 0;
+    } else {
+        evt.global_ordering = next_global_ordering_index();
+    }
+
     evt.result = result;
     evt.data_length = 0;
     evt.start_wall_time = start_wall_time;

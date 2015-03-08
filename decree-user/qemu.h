@@ -424,7 +424,7 @@ static inline void *lock_user_string(abi_ulong guest_addr)
 
 /* Record/replay functions */
 #define REPLAY_MAGIC 0xbd46f4dd
-#define REPLAY_VERSION 1
+#define REPLAY_VERSION 2
 
 #define REPLAY_FLAG_COMPACT 1 /* When set, doesn't include validation information */
 
@@ -436,6 +436,7 @@ struct replay_header {
     uint32_t flags; /* See above for available flags */
 };
 
+#define REPLAY_EVENT_TERMINATE 1
 #define REPLAY_EVENT_TRANSMIT 2
 #define REPLAY_EVENT_RECEIVE 3
 #define REPLAY_EVENT_FDWAIT 4
@@ -453,7 +454,7 @@ struct replay_event {
 
 int replay_create(const char* filename, uint32_t flags, uint32_t seed);
 int replay_open(const char* filename);
-void replay_close(void);
+int replay_close(int signal);
 
 uint32_t get_physical_wall_time(void);
 uint32_t get_current_wall_time(void);

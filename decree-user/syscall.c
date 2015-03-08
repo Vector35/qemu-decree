@@ -251,7 +251,8 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
 
     switch(num) {
     case 1: /* terminate */
-        replay_close();
+        if (!replay_close(0))
+            abort();
         _exit(arg1);
         ret = 0; /* avoid warning */
         break;
