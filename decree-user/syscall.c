@@ -308,12 +308,18 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
         } else {
             /* Normal execution */
             replay_begin_event();
+
+            /* Lock a per-socket mutex so ensure that write ordering can be captured using
+               the global_ordering_index */
+            pthread_mutex_lock(shared->write_mutex[arg1]);
+
             ret = get_errno(write(arg1, p, arg3));
 
             if (ret <= 0)
                 replay_write_event(REPLAY_EVENT_TRANSMIT, arg1, ret);
             else
                 replay_write_event_with_validation_data(REPLAY_EVENT_TRANSMIT, arg1, ret, p, ret);
+            pthread_mutex_unlock(shared->write_mutex[arg1]);
         }
 
         unlock_user(p, arg2, 0);
@@ -379,6 +385,11 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
         } else {
             /* Normal execution */
             replay_begin_event();
+
+            /* Lock a per-socket mutex so ensure that read ordering can be captured using
+               the global_ordering_index */
+            pthread_mutex_lock(shared->read_mutex[arg1]);
+
             if (arg3 == 0)
                 ret = 0;
             else
@@ -388,6 +399,7 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
                 replay_write_event(REPLAY_EVENT_RECEIVE, arg1, ret);
             else
                 replay_write_event_with_required_data(REPLAY_EVENT_RECEIVE, arg1, ret, p, ret);
+            pthread_mutex_unlock(shared->read_mutex[arg1]);
         }
 
         unlock_user(p, arg2, (ret < 0) ? 0 : ret);

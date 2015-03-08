@@ -61,12 +61,16 @@ unsigned long reserved_va;
 #endif
 
 int binary_count;
+int binary_index;
 int timeout = 0;
 int random_seed;
 
 static char* record_replay_name = NULL;
-static char* replay_playback_name = NULL;
+static char* replay_playback_name[MAX_BINARIES];
+static int replay_playback_count = 0;
 int record_replay_flags = 0;
+
+struct shared_data *shared = NULL;
 
 static void usage(void);
 
@@ -409,7 +413,11 @@ static void handle_arg_record(const char* arg)
 
 static void handle_arg_replay(const char* arg)
 {
-    replay_playback_name = strdup(arg);
+    if (replay_playback_count >= MAX_BINARIES) {
+        fprintf(stderr, "Too many replays specified (maximum %d)\n", MAX_BINARIES);
+        exit(1);
+    }
+    replay_playback_name[replay_playback_count++] = strdup(arg);
 }
 
 static void handle_arg_compact(const char* arg)
@@ -716,6 +724,8 @@ int main(int argc, char **argv)
     int* ipc_sockets = NULL;
     int is_parent;
     const char* filename;
+    pthread_mutexattr_t attr;
+    pthread_condattr_t condattr;
 
     signal(SIGPIPE, SIG_IGN);
 
@@ -729,6 +739,46 @@ int main(int argc, char **argv)
     random_seed = (int)time(NULL);
 
     optind = parse_args(argc, argv);
+
+    /* Allocate shared memory for communicating across binaries */
+    shared = mmap(NULL, sizeof(struct shared_data), PROT_READ | PROT_WRITE,
+                  MAP_ANONYMOUS | MAP_HASSEMAPHORE | MAP_SHARED, -1, 0);
+    if (!shared) {
+        fprintf(stderr, "Unable to allocate shared memory\n");
+        _exit(1);
+    }
+    memset(shared, 0, sizeof(struct shared_data));
+
+    shared->global_ordering_index = 0;
+
+    /* Initialize mutexes in the shared memory region.  These mutexes will be used to
+     * guarantee ordering when reading and writing to sockets. */
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+    pthread_mutex_init(&shared->client_read_mutex, &attr);
+    pthread_mutex_init(&shared->client_write_mutex, &attr);
+    pthread_mutex_init(&shared->error_read_mutex, &attr);
+    pthread_mutex_init(&shared->error_write_mutex, &attr);
+    shared->read_mutex[0] = &shared->client_read_mutex;
+    shared->write_mutex[0] = &shared->client_write_mutex;
+    shared->read_mutex[1] = &shared->client_read_mutex;
+    shared->write_mutex[1] = &shared->client_write_mutex;
+    shared->read_mutex[2] = &shared->error_read_mutex;
+    shared->write_mutex[2] = &shared->error_write_mutex;
+    for (i = 0; i < MAX_BINARIES; i++) {
+        pthread_mutex_init(&shared->binary_read_mutex[i], &attr);
+        pthread_mutex_init(&shared->binary_write_mutex[i], &attr);
+        shared->read_mutex[3 + i * 2] = &shared->binary_read_mutex[i];
+        shared->write_mutex[3 + i * 2] = &shared->binary_write_mutex[i];
+        shared->read_mutex[4 + i * 2] = &shared->binary_read_mutex[i];
+        shared->write_mutex[4 + i * 2] = &shared->binary_write_mutex[i];
+    }
+
+    /* Initialize synchronization for system call ordering during replay */
+    pthread_mutex_init(&shared->syscall_ordering_mutex, &attr);
+    pthread_condattr_init(&condattr);
+    pthread_condattr_setpshared(&condattr, PTHREAD_PROCESS_SHARED);
+    pthread_cond_init(&shared->syscall_ordering_cond, &condattr);
 
     /* For multi-executable challenge binaries, we need to set up the IPC socket pairs.
        Each executable has a socket pair associated with it, starting at descriptor 3. */
@@ -826,7 +876,22 @@ int main(int argc, char **argv)
     /* Challenge binaries can be composed of one or more executables, if it is a single
        executable, start running it immediately as there is no setup necessary */
     binary_count = argc - optind;
+    if (binary_count > MAX_BINARIES) {
+        fprintf(stderr, "Maximum binary count (%d) exceeded.\n", MAX_BINARIES);
+        _exit(1);
+    }
+
+    if ((replay_playback_count > 0) && (binary_count > 1) && (replay_playback_count != binary_count)) {
+        fprintf(stderr, "Expected one replay file for each binary.\n");
+        _exit(1);
+    }
+
+    /* Grab starting reference time before starting binaries, this must be shared among
+       all running binaries to have a common reference point. */
+    shared->base_wall_time = get_physical_wall_time();
+
     if (binary_count == 1) {
+        binary_index = 0;
         filename = argv[optind];
         open_and_load_file(filename, regs, info, &bprm);
     } else {
@@ -840,6 +905,7 @@ int main(int argc, char **argv)
             children[i] = fork();
             if (children[i] == 0) {
                 is_parent = 0;
+                binary_index = i;
                 filename = argv[optind + i];
                 open_and_load_file(filename, regs, info, &bprm);
                 break;
@@ -909,10 +975,10 @@ int main(int argc, char **argv)
         }
 
         free(replay_filename);
-    } else if (replay_playback_name) {
+    } else if (replay_playback_count > 0) {
         /* If playing back a replay, open the replay file */
-        if (!replay_open(replay_playback_name)) {
-            fprintf(stderr, "Replay file invalid\n");
+        if (!replay_open(replay_playback_name[binary_index])) {
+            fprintf(stderr, "Replay file invalid for binary '%s'\n", argv[optind + binary_index]);
             _exit(1);
         }
     }

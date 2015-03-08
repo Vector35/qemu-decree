@@ -116,10 +116,42 @@ typedef struct TaskState {
 void init_task_state(TaskState *ts);
 void task_settid(TaskState *);
 void stop_all_tasks(void);
-extern const char *qemu_uname_release;
 extern unsigned long mmap_min_addr;
 extern int binary_count;
+extern int binary_index;
 extern int random_seed;
+
+#define MAX_BINARIES 64
+#define MAX_FD (5 + MAX_BINARIES * 2)
+
+struct shared_data {
+    /* The starting clock for all binaries should be the same */
+    uint32_t base_wall_time;
+
+    /* Keep a global index for determining the order of syscalls across all processes */
+    volatile uint32_t global_ordering_index;
+
+    /* Keep a per-socket mutex to ensure that writes to individual sockets are guaranteed
+     * to be in an order that is tracked by the global_ordering_index */
+    pthread_mutex_t *read_mutex[MAX_FD];
+    pthread_mutex_t *write_mutex[MAX_FD];
+    pthread_mutex_t client_read_mutex;
+    pthread_mutex_t client_write_mutex;
+    pthread_mutex_t error_read_mutex;
+    pthread_mutex_t error_write_mutex;
+    pthread_mutex_t binary_read_mutex[MAX_BINARIES];
+    pthread_mutex_t binary_write_mutex[MAX_BINARIES];
+
+    /* This mutex will be held during replay by only one process at a time, which is the next
+       process to receive a syscall according to the global ordering index stored in the
+       replay files.  This will guarantee that the ordering of syscalls in the replay is
+       same as it was during the first execution, so that analysis such as taint tracking
+       can work across binary boundaries. */
+    pthread_mutex_t syscall_ordering_mutex;
+    pthread_cond_t syscall_ordering_cond;
+};
+
+extern struct shared_data *shared;
 
 /* Read a good amount of data initially, to hopefully get all the
    program headers loaded.  */
@@ -130,12 +162,12 @@ extern int random_seed;
  * used when loading binaries.
  */
 struct linux_binprm {
-        char buf[BPRM_BUF_SIZE] __attribute__((aligned));
-        abi_ulong p;
+    char buf[BPRM_BUF_SIZE] __attribute__((aligned));
+    abi_ulong p;
 	int fd;
-        int e_uid, e_gid;
-        char * filename;        /* Name of binary */
-        int (*core_dump)(int, const CPUArchState *); /* coredump routine */
+    int e_uid, e_gid;
+    char * filename;        /* Name of binary */
+    int (*core_dump)(int, const CPUArchState *); /* coredump routine */
 };
 
 void do_init_thread(struct target_pt_regs *regs, struct image_info *infop);
@@ -422,6 +454,9 @@ struct replay_event {
 int replay_create(const char* filename, uint32_t flags, uint32_t seed);
 int replay_open(const char* filename);
 void replay_close(void);
+
+uint32_t get_physical_wall_time(void);
+uint32_t get_current_wall_time(void);
 
 void replay_begin_event(void);
 void replay_nonblocking_event(void);

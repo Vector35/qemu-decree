@@ -2,18 +2,19 @@
 
 static int replay_fd = -1;
 static int reading_replay = 0;
+static int multi_binary_replay = 0;
 static uint32_t replay_flags = 0;
-static uint32_t base_wall_time = 0;
 static uint32_t start_wall_time = 0;
 
-static int global_ordering_index = 0; /* FIXME: This needs to actually be global */
+static int has_next_event;
+static struct replay_event next_replay_event;
 
 static int next_global_ordering_index()
 {
-    return global_ordering_index++;
+    return __sync_fetch_and_add(&shared->global_ordering_index, 1);
 }
 
-static uint32_t get_physical_wall_time()
+uint32_t get_physical_wall_time()
 {
     struct timeval tv;
     uint64_t result;
@@ -26,85 +27,9 @@ static uint32_t get_physical_wall_time()
     return result;
 }
 
-static uint32_t get_current_wall_time()
+uint32_t get_current_wall_time()
 {
-    return get_physical_wall_time() - base_wall_time;
-}
-
-int replay_create(const char* filename, uint32_t flags, uint32_t seed)
-{
-    struct replay_header hdr;
-
-    replay_fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (replay_fd < 0) {
-        fprintf(stderr, "Replay file '%s' could not be written\n", filename);
-        return 0;
-    }
-
-    replay_flags = flags;
-
-    hdr.magic = REPLAY_MAGIC;
-    hdr.version = REPLAY_VERSION;
-    hdr.binary_count = binary_count;
-    hdr.seed = seed;
-    hdr.flags = flags;
-    if (write(replay_fd, &hdr, sizeof(hdr)) <= 0) {
-        fprintf(stderr, "Writing to replay file failed\n");
-        close(replay_fd);
-        replay_fd = -1;
-        return 0;
-    }
-
-    base_wall_time = get_physical_wall_time();
-    return 1;
-}
-
-int replay_open(const char* filename)
-{
-    struct replay_header hdr;
-
-    replay_fd = open(filename, O_RDONLY);
-    if (replay_fd < 0) {
-        fprintf(stderr, "Replay file '%s' could not be opened\n", filename);
-        return 0;
-    }
-
-    if (read(replay_fd, &hdr, sizeof(hdr)) <= 0) {
-        fprintf(stderr, "Reading from replay file failed\n");
-        close(replay_fd);
-        replay_fd = -1;
-        return 0;
-    }
-
-    if (hdr.magic != REPLAY_MAGIC) {
-        fprintf(stderr, "File given is not a valid replay file\n");
-        close(replay_fd);
-        replay_fd = -1;
-        return 0;
-    }
-
-    if (hdr.version != REPLAY_VERSION) {
-        fprintf(stderr, "Replay file is version %d, current is %d, not opening\n", hdr.version, REPLAY_VERSION);
-        close(replay_fd);
-        replay_fd = -1;
-        return 0;
-    }
-
-    reading_replay = 1;
-    replay_flags = hdr.flags;
-    binary_count = hdr.binary_count;
-    random_seed = hdr.seed;
-    return 1;
-}
-
-void replay_close(void)
-{
-    if (replay_fd == -1)
-        return;
-
-    close(replay_fd);
-    replay_fd = -1;
-    reading_replay = 0;
+    return get_physical_wall_time() - shared->base_wall_time;
 }
 
 static void replay_write(const void* data, size_t len)
@@ -129,6 +54,99 @@ static void replay_write(const void* data, size_t len)
         data = (const char*)data + result;
         len -= result;
     }
+}
+
+int replay_create(const char* filename, uint32_t flags, uint32_t seed)
+{
+    struct replay_header hdr;
+
+    replay_fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (replay_fd < 0) {
+        fprintf(stderr, "Replay file '%s' could not be written\n", filename);
+        return 0;
+    }
+
+    replay_flags = flags;
+
+    hdr.magic = REPLAY_MAGIC;
+    hdr.version = REPLAY_VERSION;
+    hdr.binary_count = binary_count;
+    hdr.seed = seed;
+    hdr.flags = flags;
+    replay_write(&hdr, sizeof(hdr));
+    return 1;
+}
+
+static int replay_read(void* data, size_t len)
+{
+    while (len > 0) {
+        int result = read(replay_fd, data, len);
+        if (result < 0) {
+            if (errno == EINTR)
+                continue;
+            return 0;
+        } else if (result == 0) {
+            return 0;
+        }
+
+        data = (char*)data + result;
+        len -= result;
+    }
+    return 1;
+}
+
+int replay_open(const char* filename)
+{
+    struct replay_header hdr;
+
+    /* Save whether we are actually running more than one binary, the binary_count variable will
+       be overwritten during the replay process to ensure the file descriptor state is valid. */
+    multi_binary_replay = (binary_count > 1);
+
+    replay_fd = open(filename, O_RDONLY);
+    if (replay_fd < 0) {
+        fprintf(stderr, "Replay file '%s' could not be opened\n", filename);
+        return 0;
+    }
+
+    if (!replay_read(&hdr, sizeof(hdr))) {
+        fprintf(stderr, "Reading from replay file failed\n");
+        close(replay_fd);
+        replay_fd = -1;
+        return 0;
+    }
+
+    if (hdr.magic != REPLAY_MAGIC) {
+        fprintf(stderr, "File given is not a valid replay file\n");
+        close(replay_fd);
+        replay_fd = -1;
+        return 0;
+    }
+
+    if (hdr.version != REPLAY_VERSION) {
+        fprintf(stderr, "Replay file is version %d, current is %d, not opening\n", hdr.version, REPLAY_VERSION);
+        close(replay_fd);
+        replay_fd = -1;
+        return 0;
+    }
+
+    reading_replay = 1;
+    replay_flags = hdr.flags;
+    binary_count = hdr.binary_count;
+    random_seed = hdr.seed;
+
+    has_next_event = replay_read(&next_replay_event, sizeof(next_replay_event));
+    return 1;
+}
+
+void replay_close(void)
+{
+    if (replay_fd == -1)
+        return;
+
+    close(replay_fd);
+    replay_fd = -1;
+    reading_replay = 0;
 }
 
 void replay_begin_event()
@@ -220,25 +238,6 @@ void replay_write_validation_event(uint16_t id, uint16_t fd, uint32_t result, co
     replay_write(data, len);
 }
 
-static void replay_read(void* data, size_t len)
-{
-    while (len > 0) {
-        int result = read(replay_fd, data, len);
-        if (result < 0) {
-            if (errno == EINTR)
-                continue;
-            fprintf(stderr, "Error writing to replay file\n");
-            abort();
-        } else if (result == 0) {
-            fprintf(stderr, "Error writing to replay file\n");
-            abort();
-        }
-
-        data = (char*)data + result;
-        len -= result;
-    }
-}
-
 int is_replaying(void)
 {
     return reading_replay;
@@ -253,7 +252,26 @@ void* read_replay_event(struct replay_event* evt)
 {
     void* data;
 
-    replay_read(evt, sizeof(struct replay_event));
+    if (!has_next_event) {
+        fprintf(stderr, "Replay file truncated\n");
+        abort();
+    }
+
+    /* For multi-binary replays, do only one syscall at a time to guarantee the original ordering */
+    if (multi_binary_replay) {
+        pthread_mutex_lock(&shared->syscall_ordering_mutex);
+
+        while (next_replay_event.global_ordering != shared->global_ordering_index) {
+            /* This syscall is not supposed to happen yet according to the global ordering stored
+               in the replay file.  Wait for the other processes to catch up. */
+            if (pthread_cond_wait(&shared->syscall_ordering_cond, &shared->syscall_ordering_mutex) != 0) {
+                fprintf(stderr, "Replay synchronization failed\n");
+                abort();
+            }
+        }
+    }
+
+    memcpy(evt, &next_replay_event, sizeof(next_replay_event));
 
     if (evt->data_length > (1 << 30)) {
         fprintf(stderr, "Replay event data length too large\n");
@@ -261,11 +279,23 @@ void* read_replay_event(struct replay_event* evt)
     }
 
     data = malloc(evt->data_length);
-    replay_read(data, evt->data_length);
+    if (!replay_read(data, evt->data_length)) {
+        fprintf(stderr, "Replay file data could not be read\n");
+        abort();
+    }
+
+    has_next_event = replay_read(&next_replay_event, sizeof(next_replay_event));
     return data;
 }
 
 void free_replay_event(void* data)
 {
+    /* Syscall is complete, increment global ordering counter and let the next syscall execute */
+    if (multi_binary_replay) {
+        next_global_ordering_index();
+        pthread_cond_broadcast(&shared->syscall_ordering_cond);
+        pthread_mutex_unlock(&shared->syscall_ordering_mutex);
+    }
+
     free(data);
 }
