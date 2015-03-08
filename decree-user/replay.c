@@ -34,12 +34,12 @@ static int multi_binary_replay = 0;
 static uint32_t replay_flags = 0;
 static uint32_t start_wall_time = 0;
 
-static int next_global_ordering_index()
+static int next_global_ordering_index(void)
 {
     return __sync_fetch_and_add(&shared->global_ordering_index, 1);
 }
 
-uint32_t get_physical_wall_time()
+uint32_t get_physical_wall_time(void)
 {
     struct timeval tv;
     uint64_t result;
@@ -52,7 +52,7 @@ uint32_t get_physical_wall_time()
     return result;
 }
 
-uint32_t get_current_wall_time()
+uint32_t get_current_wall_time(void)
 {
     return get_physical_wall_time() - shared->base_wall_time;
 }
@@ -230,12 +230,12 @@ int replay_close(int signal)
     return result;
 }
 
-void replay_begin_event()
+void replay_begin_event(void)
 {
     start_wall_time = get_current_wall_time();
 }
 
-void replay_nonblocking_event()
+void replay_nonblocking_event(void)
 {
     /* Events that do not block will get a start time of zero */
     start_wall_time = 0;
