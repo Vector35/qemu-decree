@@ -794,6 +794,15 @@ int main(int argc, char **argv)
         }
     }
 
+    /* If debugging is desired, check for compatibility */
+    if (gdbstub_port && (binary_count > 1)) {
+        fprintf(stderr, "Debugging of multiple binaries is not supported. You can debug individual\n");
+        fprintf(stderr, "processes by recording a replay with the '-record' option, then debugging\n");
+        fprintf(stderr, "a replay of an individual process by running only the desired binary with\n");
+        fprintf(stderr, "the '-replay' option.\n");
+        exit(1);
+    }
+
     /* Zero out regs */
     memset(regs, 0, sizeof(struct target_pt_regs));
 
