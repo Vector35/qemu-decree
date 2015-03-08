@@ -35,6 +35,9 @@ def linux_build():
 	return True
 
 def mac_build():
+	# Needed for glib
+	os.environ["PATH"] = "/usr/local/bin:" + os.environ["PATH"]
+
 	# Clean existing files
 	for f in glob.glob("*.zip"):
 		os.unlink(f)

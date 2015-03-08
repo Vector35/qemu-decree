@@ -741,8 +741,13 @@ int main(int argc, char **argv)
     optind = parse_args(argc, argv);
 
     /* Allocate shared memory for communicating across binaries */
+#ifdef MAP_HASSEMAPHORE
     shared = mmap(NULL, sizeof(struct shared_data), PROT_READ | PROT_WRITE,
                   MAP_ANONYMOUS | MAP_HASSEMAPHORE | MAP_SHARED, -1, 0);
+#else
+    shared = mmap(NULL, sizeof(struct shared_data), PROT_READ | PROT_WRITE,
+                  MAP_ANONYMOUS | MAP_SHARED, -1, 0);
+#endif
     if (!shared) {
         fprintf(stderr, "Unable to allocate shared memory\n");
         _exit(1);
@@ -979,7 +984,11 @@ int main(int argc, char **argv)
         char* binary_path = strdup(filename);
         char* binary_basename = basename(binary_path);
 
-        asprintf(&replay_filename, "%s-%s.replay", record_replay_name, binary_basename);
+        if (asprintf(&replay_filename, "%s-%s.replay", record_replay_name, binary_basename) < 0) {
+            fprintf(stderr, "Invalid replay file name\n");
+            _exit(1);
+        }
+
         free(binary_path);
 
         if (!replay_create(replay_filename, record_replay_flags, random_seed)) {
