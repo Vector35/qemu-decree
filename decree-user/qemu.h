@@ -119,6 +119,7 @@ void stop_all_tasks(void);
 extern const char *qemu_uname_release;
 extern unsigned long mmap_min_addr;
 extern int binary_count;
+extern int random_seed;
 
 /* Read a good amount of data initially, to hopefully get all the
    program headers loaded.  */
@@ -213,6 +214,8 @@ void mmap_unlock(void);
 abi_ulong mmap_find_vma(abi_ulong, abi_ulong);
 void cpu_list_lock(void);
 void cpu_list_unlock(void);
+
+int is_valid_guest_fd(int fd);
 
 /* user access */
 
@@ -386,6 +389,51 @@ static inline void *lock_user_string(abi_ulong guest_addr)
     (host_ptr = lock_user(type, guest_addr, sizeof(*host_ptr), copy))
 #define unlock_user_struct(host_ptr, guest_addr, copy)		\
     unlock_user(host_ptr, guest_addr, (copy) ? sizeof(*host_ptr) : 0)
+
+/* Record/replay functions */
+#define REPLAY_MAGIC 0xbd46f4dd
+#define REPLAY_VERSION 1
+
+#define REPLAY_FLAG_COMPACT 1 /* When set, doesn't include validation information */
+
+struct replay_header {
+    uint32_t magic; /* Must equal REPLAY_MAGIC */
+    uint16_t version; /* Replay version, set to REPLAY_VERSION */
+    uint16_t binary_count; /* Number of binaries running in this challenge */
+    uint32_t seed; /* Random seed for this process */
+    uint32_t flags; /* See above for available flags */
+};
+
+#define REPLAY_EVENT_TRANSMIT 2
+#define REPLAY_EVENT_RECEIVE 3
+#define REPLAY_EVENT_FDWAIT 4
+#define REPLAY_EVENT_RANDOM 7
+
+struct replay_event {
+    uint16_t event_id; /* One of REPLAY_EVENT_* */
+    uint16_t fd; /* File descriptor for syscalls that take one */
+    uint32_t global_ordering; /* Monotonically increasing event number across all running binaries, used for synchronization */
+    uint32_t result; /* Result of operation, defined by type of event */
+    uint32_t data_length; /* Length of associated data */
+    uint32_t start_wall_time; /* Microseconds since start of execution at start of event */
+    uint32_t end_wall_time; /* Microseconds since start of execution at end of event */
+};
+
+int replay_create(const char* filename, uint32_t flags, uint32_t seed);
+int replay_open(const char* filename);
+void replay_close(void);
+
+void replay_begin_event(void);
+void replay_nonblocking_event(void);
+void replay_write_event(uint16_t id, uint16_t fd, uint32_t result);
+void replay_write_event_with_required_data(uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len);
+void replay_write_event_with_validation_data(uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len);
+void replay_write_validation_event(uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len);
+
+int is_replaying(void);
+int replay_has_validation(void);
+void* read_replay_event(struct replay_event* evt);
+void free_replay_event(void* data);
 
 #include <pthread.h>
 

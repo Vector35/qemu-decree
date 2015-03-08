@@ -107,13 +107,20 @@ static inline abi_long copy_from_user_fdset(fd_set *fds,
         return -TARGET_EFAULT;
 
     FD_ZERO(fds);
+
+    if (n > (5 + 2 * binary_count)) {
+        // Calculate size for last file descriptor accessible from the guest
+        n = 5 + 2 * binary_count;
+        nw = (n + TARGET_ABI_BITS - 1) / TARGET_ABI_BITS;
+    }
+
     k = 0;
     for (i = 0; i < nw; i++) {
         /* grab the abi_ulong */
         __get_user(b, &target_fds[i]);
         for (j = 0; j < TARGET_ABI_BITS; j++) {
             /* check the bit inside the abi_ulong */
-            if ((b >> j) & 1)
+            if (((b >> j) & 1) && is_valid_guest_fd(k))
                 FD_SET(k, fds);
             k++;
         }
@@ -157,7 +164,8 @@ static inline abi_long copy_to_user_fdset(abi_ulong target_fds_addr,
     for (i = 0; i < nw; i++) {
         v = 0;
         for (j = 0; j < TARGET_ABI_BITS; j++) {
-            v |= ((abi_ulong)(FD_ISSET(k, fds) != 0) << j);
+            if (is_valid_guest_fd(k))
+                v |= ((abi_ulong)(FD_ISSET(k, fds) != 0) << j);
             k++;
         }
         __put_user(v, &target_fds[i]);
@@ -243,11 +251,17 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
 
     switch(num) {
     case 1: /* terminate */
+        replay_close();
         _exit(arg1);
         ret = 0; /* avoid warning */
         break;
 
     case 2: /* transmit */
+        if (!is_valid_guest_fd(arg1)) {
+            ret = -TARGET_EBADF;
+            break;
+        }
+
         /* Because DECREE binaries are usually connected to a network socket, file descriptors
            0 and 1 (stdin/stdout) are typically pointing at the same file object.  Some
            challenge binaries violate the stdin/stdout standard and use the wrong descriptor
@@ -258,7 +272,50 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
 
         if (!(p = lock_user(VERIFY_READ, arg2, arg3, 1)))
             goto efault;
-        ret = get_errno(write(arg1, p, arg3));
+
+        if (is_replaying()) {
+            /* Replaying, read and verify replay event */
+            struct replay_event evt;
+            void* data;
+
+            data = read_replay_event(&evt);
+            if ((evt.event_id != REPLAY_EVENT_TRANSMIT) || (evt.fd != arg1)) {
+                fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
+                abort();
+            }
+
+            ret = evt.result;
+
+            if ((ret > 0) && (ret > arg3)) {
+                fprintf(stderr, "Replay length too large at index %d\n", evt.global_ordering);
+                abort();
+            }
+
+            if ((ret > 0) && replay_has_validation()) {
+                /* Validate that the data being sent matches the original execution */
+                if (evt.data_length < ret) {
+                    fprintf(stderr, "Data missing from replay event at index %d\n", evt.global_ordering);
+                    abort();
+                }
+
+                if (memcmp(data, p, ret) != 0) {
+                    fprintf(stderr, "Replay transmit data mismatch at index %d\n", evt.global_ordering);
+                    abort();
+                }
+            }
+
+            free_replay_event(data);
+        } else {
+            /* Normal execution */
+            replay_begin_event();
+            ret = get_errno(write(arg1, p, arg3));
+
+            if (ret <= 0)
+                replay_write_event(REPLAY_EVENT_TRANSMIT, arg1, ret);
+            else
+                replay_write_event_with_validation_data(REPLAY_EVENT_TRANSMIT, arg1, ret, p, ret);
+        }
+
         unlock_user(p, arg2, 0);
         if (!is_error(ret)) {
             if (arg4 && put_user_sal(ret, arg4))
@@ -274,6 +331,11 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
         break;
 
     case 3: /* receive */
+        if (!is_valid_guest_fd(arg1)) {
+            ret = -TARGET_EBADF;
+            break;
+        }
+
         /* Because DECREE binaries are usually connected to a network socket, file descriptors
            0 and 1 (stdin/stdout) are typically pointing at the same file object.  Some
            challenge binaries violate the stdin/stdout standard and use the wrong descriptor
@@ -284,10 +346,50 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
 
         if (!(p = lock_user(VERIFY_WRITE, arg2, arg3, 0)))
             goto efault;
-        if (arg3 == 0)
-            ret = 0;
-        else
-            ret = get_errno(read(arg1, p, arg3));
+
+        if (is_replaying()) {
+            /* Replaying, read and verify replay event */
+            struct replay_event evt;
+            void* data;
+
+            data = read_replay_event(&evt);
+            if ((evt.event_id != REPLAY_EVENT_RECEIVE) || (evt.fd != arg1)) {
+                fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
+                abort();
+            }
+
+            ret = evt.result;
+
+            if ((ret > 0) && (ret > arg3)) {
+                fprintf(stderr, "Replay length too large at index %d\n", evt.global_ordering);
+                abort();
+            }
+
+            if (ret > 0) {
+                if (evt.data_length < ret) {
+                    fprintf(stderr, "Data missing from replay event at index %d\n", evt.global_ordering);
+                    abort();
+                }
+
+                /* Grab the data from the original execution to complete the read */
+                memcpy(p, data, ret);
+            }
+
+            free_replay_event(data);
+        } else {
+            /* Normal execution */
+            replay_begin_event();
+            if (arg3 == 0)
+                ret = 0;
+            else
+                ret = get_errno(read(arg1, p, arg3));
+
+            if (ret <= 0)
+                replay_write_event(REPLAY_EVENT_RECEIVE, arg1, ret);
+            else
+                replay_write_event_with_required_data(REPLAY_EVENT_RECEIVE, arg1, ret, p, ret);
+        }
+
         unlock_user(p, arg2, (ret < 0) ? 0 : ret);
 
         if (!is_error(ret)) {
@@ -304,7 +406,88 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
         break;
 
     case 4: /* fdwait */
-        ret = do_select(arg1, arg2, arg3, arg4);
+        if (is_replaying()) {
+            /* Replaying, read and verify replay event */
+            struct replay_event evt;
+            uint32_t* data;
+
+            data = (uint32_t*)read_replay_event(&evt);
+            if ((evt.event_id != REPLAY_EVENT_FDWAIT) || (evt.fd != arg1)) {
+                fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
+                abort();
+            }
+
+            ret = evt.result;
+
+            if (ret >= 0) {
+                /* Grab the fdset state from the original execution to complete the syscall */
+                int nw, n = arg1;
+                int full_words;
+
+                full_words = (n + 31) / 32;
+
+                if (n > (4 + binary_count * 2)) {
+                    n = 4 + binary_count * 2;
+                }
+                nw = (n + 31) / 32;
+
+                if (evt.data_length < (sizeof(uint32_t) * nw * 2)) {
+                    fprintf(stderr, "Data missing from replay event at index %d\n", evt.global_ordering);
+                    abort();
+                }
+
+                for (i = 0; i < nw; i++) {
+                    if (arg2 != 0) {
+                        put_user_u32(data[i], arg2 + (i * 4));
+                    }
+                    if (arg3 != 0) {
+                        put_user_u32(data[i + nw], arg3 + (i * 4));
+                    }
+                }
+
+                for (i = nw; i < full_words; i++) {
+                    if (arg2 != 0) {
+                        put_user_u32(0, arg2 + (i * 4));
+                    }
+                    if (arg3 != 0) {
+                        put_user_u32(0, arg3 + (i * 4));
+                    }
+                }
+            }
+
+            free_replay_event(data);
+        } else {
+            /* Normal execution */
+            replay_begin_event();
+            ret = do_select(arg1, arg2, arg3, arg4);
+
+            if (ret < 0) {
+                replay_write_event(REPLAY_EVENT_FDWAIT, arg1, ret);
+            } else {
+                /* Need to record read/write status from the guest, as this isn't deterministic. */
+                int nw, n = arg1;
+                uint32_t* data;
+                if (n > (4 + binary_count * 2)) {
+                    n = 4 + binary_count * 2;
+                }
+                nw = (n + 31) / 32;
+
+                data = (uint32_t*)alloca(sizeof(uint32_t) * nw * 2);
+                memset(data, 0, sizeof(uint32_t) * nw * 2);
+
+                for (i = 0; i < nw; i++) {
+                    if (arg2 != 0) {
+                        get_user_u32(data[i], arg2 + (i * 4));
+                    }
+                    if (arg3 != 0) {
+                        get_user_u32(data[i + nw], arg3 + (i * 4));
+                    }
+                }
+
+                replay_write_event_with_required_data(REPLAY_EVENT_FDWAIT, arg1, ret, data, sizeof(uint32_t) * nw * 2);
+            }
+        }
+
         if (ret >= 0) {
             if (arg5 && put_user_sal(ret, arg5))
                 goto efault;
@@ -335,6 +518,43 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
             /* FIXME: Use same random algorithm as DARPA kernel */
             ((char*)p)[i] = (char)(rand() & 0xff);
         }
+
+        if (is_replaying()) {
+            /* Replaying, read and verify replay event */
+            if (replay_has_validation()) {
+                struct replay_event evt;
+                void* data;
+
+                data = read_replay_event(&evt);
+                if (evt.event_id != REPLAY_EVENT_RANDOM) {
+                    fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
+                    abort();
+                }
+
+                if (evt.result != arg2) {
+                    fprintf(stderr, "Replay length mismatch at index %d\n", evt.global_ordering);
+                    abort();
+                }
+
+                if (evt.data_length < arg2) {
+                    fprintf(stderr, "Data missing from replay event at index %d\n", evt.global_ordering);
+                    abort();
+                }
+
+                /* Validate that random data matches original execution */
+                if (memcmp(data, p, arg2) != 0) {
+                    fprintf(stderr, "Replay random data mismatch at index %d\n", evt.global_ordering);
+                    abort();
+                }
+
+                free_replay_event(data);
+            }
+        } else {
+            /* Normal execution */
+            replay_nonblocking_event();
+            replay_write_validation_event(REPLAY_EVENT_RANDOM, 0, arg2, p, arg2);
+        }
+
         unlock_user(p, arg1, arg2);
         if (arg3 && put_user_sal(arg2, arg3))
             goto efault;

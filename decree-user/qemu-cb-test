@@ -118,7 +118,7 @@ class Runner(object):
     pov_signals = [signal.SIGSEGV, signal.SIGILL, signal.SIGBUS]
 
     def __init__(self, cb_list, xml_list, wrapper, directory,
-                 should_core, failure_ok, should_debug, timeout, log_fh):
+                 should_core, failure_ok, should_debug, timeout, record, compact, log_fh):
         self.log = logging.getLogger('cb-test')
         self.cb_list = cb_list
         self.xml_list = xml_list
@@ -128,6 +128,8 @@ class Runner(object):
         self.should_debug = should_debug
         self.failure_ok = failure_ok
         self.timeout = timeout
+        self.record = record
+        self.compact = compact
         self.processes = []
         self.log_fh = log_fh
         self.passed = 0
@@ -207,13 +209,18 @@ class Runner(object):
                 return name
         return 'UNKNOWN'
 
-    def start_cb(self):
+    def start_cb(self, xml_name):
         run_cmd = [os.path.join(os.path.dirname(__file__), 'qemu-decree')]
 
         if self.timeout > 0:
             run_cmd += ['-t', '%d' % self.timeout]
         else:
             run_cmd += ['-t', '15']
+
+        if self.record is not None:
+            run_cmd += ['-record', self.record + "-" + xml_name]
+        if self.compact:
+            run_cmd += ['-compact']
 
         for cb in self.cb_list:
             if self.directory is None:
@@ -282,7 +289,9 @@ class Runner(object):
         result = 0
 
         for xml in self.xml_list:
-            cb = self.start_cb()
+            xml_name = os.path.splitext(os.path.basename(xml))[0]
+
+            cb = self.start_cb(xml_name)
             replay_result = self.start_replay(cb, xml)
             sig = -1
 
@@ -333,6 +342,9 @@ def main():
     parser.add_argument('--failure_ok', required=False, action='store_true',
                         default=False, help='Failures for this test are '
                         'accepted')
+    parser.add_argument('--record', required=False, type=str, help='Replay recording filename prefix')
+    parser.add_argument('--compact', required=False, action='store_true',
+                        default=False, help='Record replays without validation information')
 
     exgroup = parser.add_argument_group(title='XML files')
     group = exgroup.add_mutually_exclusive_group(required=True)
@@ -367,7 +379,7 @@ def main():
     ret = -1
     runner = Runner(args.cb, xml_files, args.wrapper,
                     args.directory, args.should_core, args.failure_ok,
-                    args.debug, args.timeout, log_fh)
+                    args.debug, args.timeout, args.record, args.compact, log_fh)
     try:
         ret = runner.run()
     except KeyboardInterrupt:

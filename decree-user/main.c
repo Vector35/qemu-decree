@@ -26,6 +26,7 @@
 #include <sys/syscall.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
+#include <libgen.h>
 
 #include "qemu.h"
 #include "qemu-common.h"
@@ -61,6 +62,11 @@ unsigned long reserved_va;
 
 int binary_count;
 int timeout = 0;
+int random_seed;
+
+static char* record_replay_name = NULL;
+static char* replay_playback_name = NULL;
+int record_replay_flags = 0;
 
 static void usage(void);
 
@@ -396,6 +402,21 @@ static void handle_arg_log_filename(const char *arg)
     qemu_set_log_filename(arg);
 }
 
+static void handle_arg_record(const char* arg)
+{
+    record_replay_name = strdup(arg);
+}
+
+static void handle_arg_replay(const char* arg)
+{
+    replay_playback_name = strdup(arg);
+}
+
+static void handle_arg_compact(const char* arg)
+{
+    record_replay_flags |= REPLAY_FLAG_COMPACT;
+}
+
 static void handle_arg_randseed(const char *arg)
 {
     unsigned long long seed;
@@ -404,7 +425,7 @@ static void handle_arg_randseed(const char *arg)
         fprintf(stderr, "Invalid seed number: %s\n", arg);
         exit(1);
     }
-    srand(seed);
+    random_seed = seed;
 }
 
 static void handle_arg_gdb(const char *arg)
@@ -514,6 +535,12 @@ static const struct qemu_argument arg_table[] = {
      "(use '-d help' for a list of items)"},
     {"D",          "QEMU_LOG_FILENAME", true, handle_arg_log_filename,
      "logfile",     "write logs to 'logfile' (default stderr)"},
+    {"record",     "QEMU_RECORD",      true,  handle_arg_record,
+     "name",       "Record this execution for later replay"},
+    {"replay",     "QEMU_REPLAY",      true,  handle_arg_replay,
+     "name",       "Replay a recorded execution"},
+    {"compact",    "QEMU_RECORD_COMPACT", false,  handle_arg_compact,
+     "",           "Leave out validation information for smaller replay"},
     {"singlestep", "QEMU_SINGLESTEP",  false, handle_arg_singlestep,
      "",           "run in singlestep mode"},
     {"strace",     "QEMU_STRACE",      false, handle_arg_strace,
@@ -660,6 +687,20 @@ static void sigchild_handler(int sig)
 {
 }
 
+int is_valid_guest_fd(int fd)
+{
+    /* Check file descriptor on guest access to make sure it is one it should be accessing */
+    if (fd < 0)
+        return 0;
+    if (fd <= 2) /* stdin/stdout/stderr are always valid */
+        return 1;
+    if (binary_count <= 1) /* If single binary, only stdin/stdout/stderr are valid */
+        return 0;
+    if (fd <= (4 + 2 * binary_count)) /* For multi-binary, allow socket pairs */
+        return 1;
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     struct target_pt_regs regs1, *regs = &regs1;
@@ -674,6 +715,7 @@ int main(int argc, char **argv)
     pid_t* children;
     int* ipc_sockets = NULL;
     int is_parent;
+    const char* filename;
 
     signal(SIGPIPE, SIG_IGN);
 
@@ -684,7 +726,7 @@ int main(int argc, char **argv)
     cpudef_setup(); /* parse cpu definitions in target config file (TBD) */
 #endif
 
-    srand(time(NULL));
+    random_seed = (int)time(NULL);
 
     optind = parse_args(argc, argv);
 
@@ -785,7 +827,8 @@ int main(int argc, char **argv)
        executable, start running it immediately as there is no setup necessary */
     binary_count = argc - optind;
     if (binary_count == 1) {
-        open_and_load_file(argv[optind], regs, info, &bprm);
+        filename = argv[optind];
+        open_and_load_file(filename, regs, info, &bprm);
     } else {
         signal(SIGCHLD, sigchild_handler);
 
@@ -797,7 +840,8 @@ int main(int argc, char **argv)
             children[i] = fork();
             if (children[i] == 0) {
                 is_parent = 0;
-                open_and_load_file(argv[optind + i], regs, info, &bprm);
+                filename = argv[optind + i];
+                open_and_load_file(filename, regs, info, &bprm);
                 break;
             }
         }
@@ -849,6 +893,32 @@ int main(int argc, char **argv)
             }
         }
     }
+
+    if (record_replay_name) {
+        /* If recording a replay, open the replay file now */
+        char* replay_filename;
+        char* binary_path = strdup(filename);
+        char* binary_basename = basename(binary_path);
+
+        asprintf(&replay_filename, "%s-%s.replay", record_replay_name, binary_basename);
+        free(binary_path);
+
+        if (!replay_create(replay_filename, record_replay_flags, random_seed)) {
+            fprintf(stderr, "Replay file not created\n");
+            _exit(1);
+        }
+
+        free(replay_filename);
+    } else if (replay_playback_name) {
+        /* If playing back a replay, open the replay file */
+        if (!replay_open(replay_playback_name)) {
+            fprintf(stderr, "Replay file invalid\n");
+            _exit(1);
+        }
+    }
+
+    /* Now that the optional replay file is ready and we are about to execute, set the random seed */
+    srand(random_seed);
 
     /* If a timeout has been set, activate it now */
     if (timeout > 0) {
