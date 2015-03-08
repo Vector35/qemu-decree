@@ -18,7 +18,7 @@ def linux_build():
 		shutil.rmtree("i386-decree-user")
 
 	# Build the project with a clean build
-	ok = subprocess.call("./configure --target-list=i386-decree-user --disable-system && make clean && make -j5", shell = True) == 0
+	ok = subprocess.call("./configure --target-list=i386-decree-user --disable-tools --disable-system && make clean && make -j5", shell = True) == 0
 	if not ok:
 		print "Build failed, aborting"
 		return False
@@ -42,7 +42,7 @@ def mac_build():
 		shutil.rmtree("i386-decree-user")
 
 	# Build the project with a clean build
-	ok = subprocess.call("./configure --target-list=i386-decree-user --disable-system --enable-pie && make clean && make -j5", shell = True) == 0
+	ok = subprocess.call("./configure --target-list=i386-decree-user --disable-tools --disable-system --enable-pie && make clean && make -j5", shell = True) == 0
 	if not ok:
 		print "Build failed, aborting"
 		return False
