@@ -20,7 +20,9 @@ struct syscallname {
     void (*call)(const struct syscallname *,
                  abi_long, abi_long, abi_long,
                  abi_long, abi_long, abi_long);
-    void (*result)(const struct syscallname *, abi_long);
+    void (*result)(const struct syscallname *, abi_long,
+                   abi_long, abi_long, abi_long,
+                   abi_long, abi_long, abi_long);
 };
 
 #ifdef __GNUC__
@@ -57,6 +59,7 @@ UNUSED static void print_flags(const struct flags *, abi_long, int);
 UNUSED static void print_syscall_prologue(const struct syscallname *);
 UNUSED static void print_syscall_epilogue(const struct syscallname *);
 UNUSED static void print_string(abi_long, int);
+UNUSED static void print_data(abi_long, abi_ulong, int);
 UNUSED static void print_raw_param(const char *, abi_long, int);
 UNUSED static void print_timeval(abi_ulong, int);
 UNUSED static void print_number(abi_long, int);
@@ -166,6 +169,37 @@ print_string(abi_long addr, int last)
     }
 }
 
+static void
+print_data(abi_long addr, abi_ulong len, int last)
+{
+    unsigned char *p;
+    abi_ulong i;
+
+    if (!(p = (unsigned char*)lock_user(VERIFY_READ, addr, len, 1))) {
+        print_pointer(addr, last);
+        return;
+    }
+
+    gemu_log("\"");
+    for (i = 0; i < len; i++) {
+        if (p[i] == '\t')
+            gemu_log("\\t");
+        else if (p[i] == '\r')
+            gemu_log("\\r");
+        else if (p[i] == '\n')
+            gemu_log("\\n");
+        else if (p[i] == '\"')
+            gemu_log("\\\"");
+        else if ((p[i] < 0x20) || (p[i] > 0x7e) || (p[i] == '\"'))
+            gemu_log("\\x%.2x", p[i]);
+        else
+            gemu_log("%c", p[i]);
+    }
+    gemu_log("\"%s", get_comma(last));
+
+    unlock_user(p, addr, 0);
+}
+
 /*
  * Prints out raw parameter using given format.  Caller needs
  * to do byte swapping if needed.
@@ -221,6 +255,148 @@ print_timeval(abi_ulong tv_addr, int last)
         gemu_log("NULL%s", get_comma(last));
 }
 
+static void
+print_return(abi_long ret)
+{
+    char *errstr = NULL;
+    if (ret > 0) {
+        errstr = target_strerror(-ret);
+    }
+    if (errstr) {
+        gemu_log(" = " TARGET_ABI_FMT_ld " (%s)\n",
+                 ret, errstr);
+    } else {
+        gemu_log(" = " TARGET_ABI_FMT_ld "\n", ret);
+    }
+}
+
+static void
+print_transmit_entry(const struct syscallname *scname,
+                     abi_long arg1, abi_long arg2, abi_long arg3,
+                     abi_long arg4, abi_long arg5, abi_long arg6)
+{
+    gemu_log("%s(" TARGET_ABI_FMT_ld ",", scname->name, arg1);
+    print_data(arg2, arg3, 0);
+    gemu_log(TARGET_ABI_FMT_ld ",", arg3);
+}
+
+static void
+print_transmit_return(const struct syscallname *scname, abi_long ret,
+                      abi_long arg1, abi_long arg2, abi_long arg3,
+                      abi_long arg4, abi_long arg5, abi_long arg6)
+{
+    abi_ulong len;
+    if (get_user_ual(len, arg4)) {
+        print_pointer(arg4, 1);
+        gemu_log(")");
+    } else {
+        gemu_log("[" TARGET_ABI_FMT_ld "])", len);
+    }
+    print_return(ret);
+}
+
+static void
+print_receive_entry(const struct syscallname *scname,
+                    abi_long arg1, abi_long arg2, abi_long arg3,
+                    abi_long arg4, abi_long arg5, abi_long arg6)
+{
+    gemu_log("%s(" TARGET_ABI_FMT_ld ",", scname->name, arg1);
+}
+
+static void
+print_receive_return(const struct syscallname *scname, abi_long ret,
+                     abi_long arg1, abi_long arg2, abi_long arg3,
+                     abi_long arg4, abi_long arg5, abi_long arg6)
+{
+    abi_ulong len;
+    if (get_user_ual(len, arg4)) {
+        print_pointer(arg2, 0);
+        gemu_log(TARGET_ABI_FMT_ld ",", arg3);
+        print_pointer(arg4, 1);
+        gemu_log(")");
+    } else {
+        print_data(arg2, len, 0);
+        gemu_log(TARGET_ABI_FMT_ld ",[" TARGET_ABI_FMT_ld "])", arg3, len);
+    }
+    print_return(ret);
+}
+
+static void
+print_fdwait_entry(const struct syscallname *scname,
+                   abi_long arg1, abi_long arg2, abi_long arg3,
+                   abi_long arg4, abi_long arg5, abi_long arg6)
+{
+    gemu_log("%s(" TARGET_ABI_FMT_ld ",", scname->name, arg1);
+    print_pointer(arg2, 0);
+    print_pointer(arg3, 0);
+    print_timeval(arg4, 0);
+}
+
+static void
+print_fdwait_return(const struct syscallname *scname, abi_long ret,
+                    abi_long arg1, abi_long arg2, abi_long arg3,
+                    abi_long arg4, abi_long arg5, abi_long arg6)
+{
+    abi_ulong ready;
+    if (get_user_ual(ready, arg5)) {
+        print_pointer(arg5, 1);
+        gemu_log(")");
+    } else {
+        gemu_log("[" TARGET_ABI_FMT_ld "])", ready);
+    }
+    print_return(ret);
+}
+
+static void
+print_allocate_entry(const struct syscallname *scname,
+                     abi_long arg1, abi_long arg2, abi_long arg3,
+                     abi_long arg4, abi_long arg5, abi_long arg6)
+{
+    gemu_log("%s(" TARGET_ABI_FMT_ld "," TARGET_ABI_FMT_ld ",", scname->name, arg1, arg2);
+}
+
+static void
+print_allocate_return(const struct syscallname *scname, abi_long ret,
+                      abi_long arg1, abi_long arg2, abi_long arg3,
+                      abi_long arg4, abi_long arg5, abi_long arg6)
+{
+    abi_ulong addr;
+    if (get_user_ual(addr, arg3)) {
+        print_pointer(arg3, 1);
+        gemu_log(")");
+    } else {
+        gemu_log("[");
+        print_pointer(addr, 1);
+        gemu_log("])");
+    }
+    print_return(ret);
+}
+
+static void
+print_random_entry(const struct syscallname *scname,
+                   abi_long arg1, abi_long arg2, abi_long arg3,
+                   abi_long arg4, abi_long arg5, abi_long arg6)
+{
+    gemu_log("%s(", scname->name);
+    print_pointer(arg1, 0);
+    gemu_log(TARGET_ABI_FMT_ld ",", arg2);
+}
+
+static void
+print_random_return(const struct syscallname *scname, abi_long ret,
+                    abi_long arg1, abi_long arg2, abi_long arg3,
+                    abi_long arg4, abi_long arg5, abi_long arg6)
+{
+    abi_ulong len;
+    if (get_user_ual(len, arg3)) {
+        print_pointer(arg3, 1);
+        gemu_log(")");
+    } else {
+        gemu_log("[" TARGET_ABI_FMT_ld "])", len);
+    }
+    print_return(ret);
+}
+
 #undef UNUSED
 
 /*
@@ -264,25 +440,18 @@ print_syscall(int num,
 
 
 void
-print_syscall_ret(int num, abi_long ret)
+print_syscall_ret(int num, abi_long ret,
+                  abi_long arg1, abi_long arg2, abi_long arg3,
+                  abi_long arg4, abi_long arg5, abi_long arg6)
 {
     int i;
-    char *errstr = NULL;
 
     for(i=0;i<nsyscalls;i++)
         if( scnames[i].nr == num ) {
             if( scnames[i].result != NULL ) {
-                scnames[i].result(&scnames[i],ret);
+                scnames[i].result(&scnames[i],ret,arg1,arg2,arg3,arg4,arg5,arg6);
             } else {
-                if (ret < 0) {
-                    errstr = target_strerror(-ret);
-                }
-                if (errstr) {
-                    gemu_log(" = -1 errno=" TARGET_ABI_FMT_ld " (%s)\n",
-                             -ret, errstr);
-                } else {
-                    gemu_log(" = " TARGET_ABI_FMT_ld "\n", ret);
-                }
+                print_return(ret);
             }
             break;
         }

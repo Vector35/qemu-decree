@@ -3,10 +3,10 @@
  * that corresponding print functions are able to handle string
  * locking correctly (see strace.c).
  */
-{ 1, "terminate" , "%s(%x)", NULL, NULL },
-{ 2, "transmit" , "%s(%x,%p,%x,%p)", NULL, NULL },
-{ 3, "receive" , "%s(%x,%p,%x,%p)", NULL, NULL },
-{ 4, "fdwait" , NULL, NULL, NULL },
-{ 5, "allocate" , NULL, NULL, NULL },
-{ 6, "deallocate" , NULL, NULL, NULL },
-{ 7, "random" , "%s(%p,%x,%p)", NULL, NULL }
+{ 1, "terminate" , "%s(%d)", NULL, NULL },
+{ 2, "transmit" , NULL, print_transmit_entry, print_transmit_return },
+{ 3, "receive" , NULL, print_receive_entry, print_receive_return },
+{ 4, "fdwait" , NULL, print_fdwait_entry, print_fdwait_return },
+{ 5, "allocate" , NULL, print_allocate_entry, print_allocate_return },
+{ 6, "deallocate" , "%s(%p,%d)", NULL, NULL },
+{ 7, "random" , NULL, print_random_entry, print_random_return }

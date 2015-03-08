@@ -49,8 +49,11 @@ int have_guest_base;
  *
  * This way we will never overlap with our own libraries or binaries or stack
  * or anything else that QEMU maps.
+ *
+ * Use 4GB+4kB here to ensure that it is not possible for the guest to
+ * address memory outside its address space.
  */
-unsigned long reserved_va = 0xc0000000;
+unsigned long reserved_va = 0x100001000L;
 #else
 unsigned long reserved_va;
 #endif

@@ -259,6 +259,7 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
         if (!(p = lock_user(VERIFY_READ, arg2, arg3, 1)))
             goto efault;
         ret = get_errno(write(arg1, p, arg3));
+        unlock_user(p, arg2, 0);
         if (!is_error(ret)) {
             if (arg4 && put_user_sal(ret, arg4))
                 goto efault;
@@ -270,8 +271,6 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
          * on a socket. */
         if ((arg1 == 1) && (ret == -TARGET_EPIPE))
             ret = -TARGET_EINVAL;
-
-        unlock_user(p, arg2, 0);
         break;
 
     case 3: /* receive */
@@ -289,6 +288,8 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
             ret = 0;
         else
             ret = get_errno(read(arg1, p, arg3));
+        unlock_user(p, arg2, (ret < 0) ? 0 : ret);
+
         if (!is_error(ret)) {
             if (arg4 && put_user_sal(ret, arg4))
                 goto efault;
@@ -300,8 +301,6 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
          * on a socket. */
         if ((arg1 == 0) && (ret == -TARGET_EPIPE))
             ret = -TARGET_EINVAL;
-
-        unlock_user(p, arg2, ret);
         break;
 
     case 4: /* fdwait */
@@ -336,10 +335,10 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
             /* FIXME: Use same random algorithm as DARPA kernel */
             ((char*)p)[i] = (char)(rand() & 0xff);
         }
+        unlock_user(p, arg1, arg2);
         if (arg3 && put_user_sal(arg2, arg3))
             goto efault;
         ret = 0;
-        unlock_user(p, arg1, ret);
         break;
 
     default:
@@ -352,7 +351,7 @@ fail:
     gemu_log(" = " TARGET_ABI_FMT_ld "\n", ret);
 #endif
     if(do_strace)
-        print_syscall_ret(num, ret);
+        print_syscall_ret(num, ret, arg1, arg2, arg3, arg4, arg5, arg6);
     /* Errors returned to the guest should be positive integers */
     return -ret;
 efault:
