@@ -25,6 +25,8 @@
 #include <zlib.h>
 #include "qemu.h"
 
+#define REPLAY_BUFFER_SIZE 1048576
+
 static int replay_fd = -1;
 static gzFile replay_zlib_file;
 static int reading_replay = 0;
@@ -33,6 +35,9 @@ static int writing_replay = 0;
 static int multi_binary_replay = 0;
 static uint32_t replay_flags = 0;
 static uint32_t start_wall_time = 0;
+
+static uint8_t replay_buffer[REPLAY_BUFFER_SIZE];
+static size_t consumed_replay_buffer = 0;
 
 static int next_global_ordering_index(void)
 {
@@ -81,6 +86,22 @@ static void replay_write(const void* data, size_t len)
     }
 }
 
+static void replay_buffered_write(const void* data, size_t len)
+{
+    if ((consumed_replay_buffer + len) > REPLAY_BUFFER_SIZE) {
+        replay_write(replay_buffer, consumed_replay_buffer);
+        consumed_replay_buffer = 0;
+    }
+
+    if (len > REPLAY_BUFFER_SIZE) {
+        replay_write(data, len);
+        return;
+    }
+
+    memcpy(&replay_buffer[consumed_replay_buffer], data, len);
+    consumed_replay_buffer += len;
+}
+
 int replay_create(const char* filename, uint32_t flags, uint32_t seed)
 {
     struct replay_header hdr;
@@ -99,7 +120,7 @@ int replay_create(const char* filename, uint32_t flags, uint32_t seed)
     hdr.binary_count = binary_count;
     hdr.seed = seed;
     hdr.flags = flags;
-    replay_write(&hdr, sizeof(hdr));
+    replay_buffered_write(&hdr, sizeof(hdr));
     return 1;
 }
 
@@ -216,6 +237,12 @@ int replay_close(int signal)
         /* When closing a record session, add an end event to track the time of exit and the signal if any. */
         start_wall_time = 0;
         replay_write_event(REPLAY_EVENT_TERMINATE, 0, signal);
+
+        /* Flush write buffer before closing */
+        if (consumed_replay_buffer > 0) {
+            replay_write(replay_buffer, consumed_replay_buffer);
+            consumed_replay_buffer = 0;
+        }
     }
 
     if (reading_replay && reading_compressed) {
@@ -265,7 +292,7 @@ void replay_write_event(uint16_t id, uint16_t fd, uint32_t result)
     evt.start_wall_time = start_wall_time;
     evt.end_wall_time = get_current_wall_time();
 
-    replay_write(&evt, sizeof(evt));
+    replay_buffered_write(&evt, sizeof(evt));
 }
 
 void replay_write_event_with_required_data(uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len)
@@ -283,8 +310,8 @@ void replay_write_event_with_required_data(uint16_t id, uint16_t fd, uint32_t re
     evt.start_wall_time = start_wall_time;
     evt.end_wall_time = get_current_wall_time();
 
-    replay_write(&evt, sizeof(evt));
-    replay_write(data, len);
+    replay_buffered_write(&evt, sizeof(evt));
+    replay_buffered_write(data, len);
 }
 
 void replay_write_event_with_validation_data(uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len)
@@ -302,9 +329,9 @@ void replay_write_event_with_validation_data(uint16_t id, uint16_t fd, uint32_t 
     evt.start_wall_time = start_wall_time;
     evt.end_wall_time = get_current_wall_time();
 
-    replay_write(&evt, sizeof(evt));
+    replay_buffered_write(&evt, sizeof(evt));
     if (!(replay_flags & REPLAY_FLAG_COMPACT))
-        replay_write(data, len);
+        replay_buffered_write(data, len);
 }
 
 void replay_write_validation_event(uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len)
@@ -324,8 +351,8 @@ void replay_write_validation_event(uint16_t id, uint16_t fd, uint32_t result, co
     evt.start_wall_time = start_wall_time;
     evt.end_wall_time = get_current_wall_time();
 
-    replay_write(&evt, sizeof(evt));
-    replay_write(data, len);
+    replay_buffered_write(&evt, sizeof(evt));
+    replay_buffered_write(data, len);
 }
 
 int is_replaying(void)
