@@ -288,11 +288,21 @@ class Runner(object):
 
         result = 0
 
+        polls = []
+
         for xml in self.xml_list:
             xml_name = os.path.splitext(os.path.basename(xml))[0]
 
             cb = self.start_cb(xml_name)
             replay_result = self.start_replay(cb, xml)
+
+            self.passed += replay_result[0]
+            self.failed += replay_result[1]
+
+            polls.append((cb, replay_result))
+
+        for poll in polls:
+            cb, replay_result = poll
             sig = -1
 
             # wait a maximum of 30 seconds after our replay and socket cleanup
@@ -302,9 +312,6 @@ class Runner(object):
                     sig = cb.wait()
             except TimeoutException:
                 cb.terminate()
-
-            self.passed += replay_result[0]
-            self.failed += replay_result[1]
 
             result = self.check_result(replay_result, sig)
             if result != 0:
