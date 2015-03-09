@@ -113,6 +113,9 @@ class Background(object):
         self.log.debug('process returned %s', repr(wval))
         return wval
 
+    def poll(self):
+        return self.process.poll()
+
 
 class Runner(object):
     pov_signals = [signal.SIGSEGV, signal.SIGILL, signal.SIGBUS]
@@ -277,6 +280,23 @@ class Runner(object):
             return 0
         return -replay_result[3]
 
+    def check_for_completed_processes(self, polls):
+        ret = []
+        for poll in polls:
+            cb, replay_result = poll
+
+            if cb.poll() is not None:
+                sig = cb.wait()
+
+                result = self.check_result(replay_result, sig)
+                if result != 0:
+                    self.errors += 1
+                else:
+                    self.full_passed += 1
+            else:
+                ret.append(poll)
+        return ret
+
     def run(self):
         self.log_packages()
 
@@ -300,6 +320,10 @@ class Runner(object):
             self.failed += replay_result[1]
 
             polls.append((cb, replay_result))
+
+            polls = self.check_for_completed_processes(polls)
+            if self.errors > 0:
+                break
 
         for poll in polls:
             cb, replay_result = poll
