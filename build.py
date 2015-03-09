@@ -36,7 +36,7 @@ def run_cb_test(name, patched, options, desc):
 	out, error = p.communicate()
 	t = time.time() - begin
 	if p.returncode != 0:
-		print "%s: FAILED" % (count, config)
+		print "%s: FAILED" % desc
 		print out
 		print "***** POLLS FAILED *****"
 		return False, t
@@ -71,7 +71,7 @@ def test_replays(name, patched, poll_names, desc, should_core):
 		if ((should_core and (p.returncode != -signal.SIGSEGV) and (p.returncode != -signal.SIGILL) and
 				(p.returncode != -signal.SIGBUS)) or
 			((not should_core) and (p.returncode < 0))):
-			print "%d %s: REPLAY FAILED" % (len(poll_names), desc, config)
+			print "%s: REPLAY FAILED" % desc
 			print "Failed while replaying %s" % f
 			print out
 			print "***** REPLAY FAILED *****"
