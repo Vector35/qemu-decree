@@ -394,6 +394,11 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
             if (binary_count > 1)
                 pthread_mutex_lock(shared->read_mutex[arg1]);
 
+            if ((max_recv > 0) && (arg3 > max_recv)) {
+                /* Restricting maximum received bytes, adjust length paremeter to match */
+                arg3 = max_recv;
+            }
+
             if (arg3 == 0)
                 ret = 0;
             else

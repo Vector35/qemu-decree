@@ -65,6 +65,8 @@ int binary_index;
 int timeout = 0;
 int random_seed;
 
+long max_recv = -1;
+
 static char* record_replay_name = NULL;
 static char* replay_playback_name[MAX_BINARIES];
 static int replay_playback_count = 0;
@@ -436,6 +438,18 @@ static void handle_arg_randseed(const char *arg)
     random_seed = seed;
 }
 
+static void handle_arg_maxrecv(const char* arg)
+{
+    unsigned long long bytes;
+
+    if (parse_uint_full(arg, &bytes, 0) != 0 || bytes > INT_MAX) {
+        fprintf(stderr, "Invalid maximum recv size: %s\n", arg);
+        exit(1);
+    }
+
+    max_recv = (long)bytes;
+}
+
 static void handle_arg_gdb(const char *arg)
 {
     gdbstub_port = atoi(arg);
@@ -555,6 +569,8 @@ static const struct qemu_argument arg_table[] = {
      "",           "log system calls"},
     {"seed",       "QEMU_RAND_SEED",   true,  handle_arg_randseed,
      "",           "Seed for pseudo-random number generator"},
+    {"maxrecv",    "QEMU_MAX_RECV",    true,  handle_arg_maxrecv,
+     "",           "Maximum bytes to receive in one call (for debug)"},
     {"version",    "QEMU_VERSION",     false, handle_arg_version,
      "",           "display version information and exit"},
     {NULL, NULL, false, NULL, NULL, NULL}
@@ -843,6 +859,10 @@ int main(int argc, char **argv)
 
     if (getenv("QEMU_RAND_SEED")) {
         handle_arg_randseed(getenv("QEMU_RAND_SEED"));
+    }
+
+    if (getenv("QEMU_MAX_RECV")) {
+        handle_arg_maxrecv(getenv("QEMU_MAX_RECV"));
     }
 
 #if defined(CONFIG_USE_GUEST_BASE)

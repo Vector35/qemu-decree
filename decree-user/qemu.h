@@ -120,6 +120,7 @@ extern unsigned long mmap_min_addr;
 extern int binary_count;
 extern int binary_index;
 extern int random_seed;
+extern long max_recv;
 
 #define MAX_BINARIES 64
 #define MAX_FD (5 + MAX_BINARIES * 2)
