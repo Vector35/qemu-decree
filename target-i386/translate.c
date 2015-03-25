@@ -34,7 +34,10 @@
 
 #include "trace-tcg.h"
 
+#if defined(CONFIG_DECREE_USER)
 #include "qemu.h"
+#include "asmx86/asmx86.h"
+#endif
 
 
 #define PREFIX_REPZ   0x01
@@ -128,12 +131,18 @@ typedef struct DisasContext {
     int cpuid_ext2_features;
     int cpuid_ext3_features;
     int cpuid_7_0_ebx_features;
+#if defined(CONFIG_DECREE_USER)
+    uint64_t insn_contents[2];
+#endif
 } DisasContext;
 
 static void gen_eob(DisasContext *s);
 static void gen_jmp(DisasContext *s, target_ulong eip);
 static void gen_jmp_tb(DisasContext *s, target_ulong eip, int tb_num);
 static void gen_op(DisasContext *s1, int op, TCGMemOp ot, int d);
+#if defined(CONFIG_DECREE_USER)
+static inline void gen_insn_retired(DisasContext *s, int end_of_block, target_ulong eip);
+#endif
 
 /* i386 arith/logic operations */
 enum {
@@ -2210,6 +2219,10 @@ static inline void gen_goto_tb(DisasContext *s, int tb_num, target_ulong eip)
     TranslationBlock *tb;
     target_ulong pc;
 
+#if defined(CONFIG_DECREE_USER)
+    gen_insn_retired(s, 0, eip);
+#endif
+
     pc = s->cs_base + eip;
     tb = s->tb;
     /* NOTE: we handle the case where the TB spans two pages here */
@@ -2553,6 +2566,9 @@ static void gen_debug(DisasContext *s, target_ulong cur_eip)
 static void gen_eob(DisasContext *s)
 {
     gen_update_cc_op(s);
+#if defined(CONFIG_DECREE_USER)
+    gen_insn_retired(s, 1, 0);
+#endif
     if (s->tb->flags & HF_INHIBIT_IRQ_MASK) {
         gen_helper_reset_inhibit_irq(cpu_env);
     }
@@ -7905,15 +7921,101 @@ void optimize_flags_init(void)
 }
 
 #if defined(CONFIG_DECREE_USER)
-static inline void gen_insn_retired()
+static inline int check_instrumentation_filter(CPUX86State *env, InsnInstrumentation *instrument,
+                                               abi_ulong pc, uint64_t *insn_contents)
 {
+    void *p;
+    abi_ulong len;
+    union {
+        struct {
+            uint64_t a, b;
+        };
+        uint8_t bytes[16];
+    } code;
+    Instruction insn;
+
+    insn_contents[0] = 0;
+    insn_contents[1] = 0;
+
+    /* First try to read an instruction of maximum length */
+    if ((p = lock_user(VERIFY_READ, pc, 15, 1)) != NULL) {
+        memcpy(code.bytes, p, 15);
+        len = 15;
+    } else {
+        /* Can't read maximum length, try a byte at a time */
+        for (len = 0; len < 15; len++) {
+            if (get_user_u8(code.bytes[len], pc + len))
+                break;
+        }
+    }
+
+    memcpy(insn_contents, code.bytes, 16);
+
+    /* Disassemble the instruction */
+    if (!Disassemble32(code.bytes, pc, len, &insn))
+        return 0;
+
+    /* Call the filter function to see if this instruction need instrumentation */
+    return instrument->filter(env, instrument->data, pc, &insn);
+}
+
+static inline void gen_instrument_before(DisasContext *s, InsnInstrumentation *instrument, abi_ulong pc)
+{
+    TCGv_ptr data;
+
+    if (!instrument->before)
+        return;
+
+    /* Ensure CPU state is up to date before calling instrumentation callback */
+    gen_update_cc_op(s);
+    gen_jmp_im(pc - s->cs_base);
+
+    /* Generate call to instrumentation */
+    data = tcg_const_ptr(instrument);
+    gen_helper_instrument_before(cpu_env, data, tcg_const_i64(s->insn_contents[0]), tcg_const_i64(s->insn_contents[1]));
+    tcg_temp_free_ptr(data);
+}
+
+static inline void gen_instrument_after(DisasContext *s, InsnInstrumentation *instrument, int end_of_block, target_ulong eip)
+{
+    TCGv_ptr data;
+
+    if (!instrument->after)
+        return;
+
+    if (!end_of_block) {
+        /* Ensure CPU state is up to date before calling instrumentation callback */
+        gen_update_cc_op(s);
+        gen_jmp_im(eip);
+    }
+
+    /* Generate call to instrumentation */
+    data = tcg_const_ptr(instrument);
+    gen_helper_instrument_after(cpu_env, data, tcg_const_i64(s->insn_contents[0]), tcg_const_i64(s->insn_contents[1]));
+    tcg_temp_free_ptr(data);
+}
+
+static inline void gen_insn_retired(DisasContext *s, int end_of_block, target_ulong eip)
+{
+    InsnInstrumentation *instrument;
     TCGv_i64 count;
 
-    count = tcg_temp_new_i64();
-    tcg_gen_ld_i64(count, cpu_env, offsetof(CPUX86State, insn_retired));
-    tcg_gen_addi_i64(count, count, 1);
-    tcg_gen_st_i64(count, cpu_env, offsetof(CPUX86State, insn_retired));
-    tcg_temp_free_i64(count);
+    if (unlikely(!QTAILQ_EMPTY(&instrumentation.insn_instrumentation))) {
+        QTAILQ_FOREACH(instrument, &instrumentation.insn_instrumentation, entry) {
+            if (instrument->active) {
+                gen_instrument_after(s, instrument, end_of_block, eip);
+            }
+        }
+    }
+
+    if (is_replaying()) {
+        /* During replay, update instruction counter */
+        count = tcg_temp_new_i64();
+        tcg_gen_ld_i64(count, cpu_env, offsetof(CPUX86State, insn_retired));
+        tcg_gen_addi_i64(count, count, 1);
+        tcg_gen_st_i64(count, cpu_env, offsetof(CPUX86State, insn_retired));
+        tcg_temp_free_i64(count);
+    }
 }
 #endif
 
@@ -7935,6 +8037,9 @@ static inline void gen_intermediate_code_internal(X86CPU *cpu,
     target_ulong cs_base;
     int num_insns;
     int max_insns;
+#if defined(CONFIG_DECREE_USER)
+    InsnInstrumentation *instrument;
+#endif
 
     /* generate intermediate code */
     pc_start = tb->pc;
@@ -8041,19 +8146,28 @@ static inline void gen_intermediate_code_internal(X86CPU *cpu,
         if (num_insns + 1 == max_insns && (tb->cflags & CF_LAST_IO))
             gen_io_start();
 
-        pc_ptr = disas_insn(env, dc, pc_ptr);
-        num_insns++;
-
 #if defined(CONFIG_DECREE_USER)
-        if (is_replaying()) {
-            /* keep track of the number of instructions executed for replay */
-            gen_insn_retired();
+        if (unlikely(!QTAILQ_EMPTY(&instrumentation.insn_instrumentation))) {
+            QTAILQ_FOREACH(instrument, &instrumentation.insn_instrumentation, entry) {
+                instrument->active = check_instrumentation_filter(env, instrument, pc_ptr, dc->insn_contents);
+                if (instrument->active) {
+                    gen_instrument_before(dc, instrument, pc_ptr);
+                }
+            }
         }
 #endif
+
+        pc_ptr = disas_insn(env, dc, pc_ptr);
+        num_insns++;
 
         /* stop translation if indicated */
         if (dc->is_jmp)
             break;
+
+#if defined(CONFIG_DECREE_USER)
+        gen_insn_retired(dc, 0, dc->pc - dc->cs_base);
+#endif
+
         /* if single step mode, we generate only one instruction and
            generate an exception */
         /* if irq were inhibited with HF_INHIBIT_IRQ_MASK, we clear

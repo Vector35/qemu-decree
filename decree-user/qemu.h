@@ -473,6 +473,31 @@ int replay_has_validation(void);
 void* read_replay_event(struct replay_event* evt);
 void free_replay_event(void* data);
 
+/* Instrumentation API */
+struct Instruction;
+typedef int (*InsnInstrumentationFilterFn)(CPUArchState *env, void *data, abi_ulong pc, struct Instruction *insn);
+typedef void (*InsnInstrumentationFn)(CPUArchState *env, void* data, struct Instruction *insn);
+
+typedef struct InsnInstrumentation {
+    void *data; /* Opaque data for use by the instrumentation implementation */
+    InsnInstrumentationFilterFn filter; /* Function that determines if instrumentation is active for a given instruction */
+    InsnInstrumentationFn before; /* Function called before instruction is executed */
+    InsnInstrumentationFn after; /* Function called after instruction is executed */
+    int active; /* Active for this instruction */
+    QTAILQ_ENTRY(InsnInstrumentation) entry;
+} InsnInstrumentation;
+
+struct InstrumentationState {
+    QTAILQ_HEAD(insn_instrumentation_head, InsnInstrumentation) insn_instrumentation;
+};
+
+extern struct InstrumentationState instrumentation;
+
+InsnInstrumentation *add_insn_instrumentation(CPUArchState *env, InsnInstrumentationFilterFn filter,
+                                              InsnInstrumentationFn before, InsnInstrumentationFn after,
+                                              void *data);
+void remove_insn_instrumentation(CPUArchState *env, InsnInstrumentation *instrument);
+
 #include <pthread.h>
 
 /* Include target-specific struct and function definitions;
