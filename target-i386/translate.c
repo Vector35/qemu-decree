@@ -7926,33 +7926,28 @@ static inline int check_instrumentation_filter(CPUX86State *env, InsnInstrumenta
 {
     void *p;
     abi_ulong len;
-    union {
-        struct {
-            uint64_t a, b;
-        };
-        uint8_t bytes[16];
-    } code;
+    uint8_t bytes[16];
     Instruction insn;
 
-    insn_contents[0] = 0;
-    insn_contents[1] = 0;
+    memset(bytes, 0, sizeof(bytes));
 
     /* First try to read an instruction of maximum length */
     if ((p = lock_user(VERIFY_READ, pc, 15, 1)) != NULL) {
-        memcpy(code.bytes, p, 15);
+        memcpy(bytes, p, 15);
         len = 15;
+        unlock_user(p, pc, 0);
     } else {
         /* Can't read maximum length, try a byte at a time */
         for (len = 0; len < 15; len++) {
-            if (get_user_u8(code.bytes[len], pc + len))
+            if (get_user_u8(bytes[len], pc + len))
                 break;
         }
     }
 
-    memcpy(insn_contents, code.bytes, 16);
+    memcpy(insn_contents, bytes, 16);
 
     /* Disassemble the instruction */
-    if (!Disassemble32(code.bytes, pc, len, &insn))
+    if (!Disassemble32(bytes, pc, len, &insn))
         return 0;
 
     /* Call the filter function to see if this instruction need instrumentation */
