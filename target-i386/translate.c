@@ -34,6 +34,8 @@
 
 #include "trace-tcg.h"
 
+#include "qemu.h"
+
 
 #define PREFIX_REPZ   0x01
 #define PREFIX_REPNZ  0x02
@@ -391,7 +393,7 @@ static inline void gen_op_addq_A0_im(int64_t val)
     tcg_gen_addi_tl(cpu_A0, cpu_A0, val);
 }
 #endif
-    
+
 static void gen_add_A0_im(DisasContext *s, int val)
 {
 #ifdef TARGET_X86_64
@@ -1588,14 +1590,14 @@ static void gen_rot_rm_T1(DisasContext *s, TCGMemOp ot, int op1, int is_right)
     t0 = tcg_const_i32(0);
     t1 = tcg_temp_new_i32();
     tcg_gen_trunc_tl_i32(t1, cpu_T[1]);
-    tcg_gen_movi_i32(cpu_tmp2_i32, CC_OP_ADCOX); 
+    tcg_gen_movi_i32(cpu_tmp2_i32, CC_OP_ADCOX);
     tcg_gen_movi_i32(cpu_tmp3_i32, CC_OP_EFLAGS);
     tcg_gen_movcond_i32(TCG_COND_NE, cpu_cc_op, t1, t0,
                         cpu_tmp2_i32, cpu_tmp3_i32);
     tcg_temp_free_i32(t0);
     tcg_temp_free_i32(t1);
 
-    /* The CC_OP value is no longer predictable.  */ 
+    /* The CC_OP value is no longer predictable.  */
     set_cc_op(s, CC_OP_DYNAMIC);
 }
 
@@ -1688,7 +1690,7 @@ static void gen_rotc_rm_T1(DisasContext *s, TCGMemOp ot, int op1,
         gen_op_ld_v(s, ot, cpu_T[0], cpu_A0);
     else
         gen_op_mov_v_reg(ot, cpu_T[0], op1);
-    
+
     if (is_right) {
         switch (ot) {
         case MO_8:
@@ -2284,17 +2286,17 @@ static void gen_cmovcc1(CPUX86State *env, DisasContext *s, TCGMemOp ot, int b,
 
 static inline void gen_op_movl_T0_seg(int seg_reg)
 {
-    tcg_gen_ld32u_tl(cpu_T[0], cpu_env, 
+    tcg_gen_ld32u_tl(cpu_T[0], cpu_env,
                      offsetof(CPUX86State,segs[seg_reg].selector));
 }
 
 static inline void gen_op_movl_seg_T0_vm(int seg_reg)
 {
     tcg_gen_andi_tl(cpu_T[0], cpu_T[0], 0xffff);
-    tcg_gen_st32_tl(cpu_T[0], cpu_env, 
+    tcg_gen_st32_tl(cpu_T[0], cpu_env,
                     offsetof(CPUX86State,segs[seg_reg].selector));
     tcg_gen_shli_tl(cpu_T[0], cpu_T[0], 4);
-    tcg_gen_st_tl(cpu_T[0], cpu_env, 
+    tcg_gen_st_tl(cpu_T[0], cpu_env,
                   offsetof(CPUX86State,segs[seg_reg].base));
 }
 
@@ -3091,7 +3093,7 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
 #endif
             {
                 gen_ldst_modrm(env, s, modrm, MO_32, OR_TMP0, 0);
-                tcg_gen_addi_ptr(cpu_ptr0, cpu_env, 
+                tcg_gen_addi_ptr(cpu_ptr0, cpu_env,
                                  offsetof(CPUX86State,fpregs[reg].mmx));
                 tcg_gen_trunc_tl_i32(cpu_tmp2_i32, cpu_T[0]);
                 gen_helper_movl_mm_T0_mmx(cpu_ptr0, cpu_tmp2_i32);
@@ -3101,14 +3103,14 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
 #ifdef TARGET_X86_64
             if (s->dflag == MO_64) {
                 gen_ldst_modrm(env, s, modrm, MO_64, OR_TMP0, 0);
-                tcg_gen_addi_ptr(cpu_ptr0, cpu_env, 
+                tcg_gen_addi_ptr(cpu_ptr0, cpu_env,
                                  offsetof(CPUX86State,xmm_regs[reg]));
                 gen_helper_movq_mm_T0_xmm(cpu_ptr0, cpu_T[0]);
             } else
 #endif
             {
                 gen_ldst_modrm(env, s, modrm, MO_32, OR_TMP0, 0);
-                tcg_gen_addi_ptr(cpu_ptr0, cpu_env, 
+                tcg_gen_addi_ptr(cpu_ptr0, cpu_env,
                                  offsetof(CPUX86State,xmm_regs[reg]));
                 tcg_gen_trunc_tl_i32(cpu_tmp2_i32, cpu_T[0]);
                 gen_helper_movl_mm_T0_xmm(cpu_ptr0, cpu_tmp2_i32);
@@ -3265,13 +3267,13 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
         case 0x7e: /* movd ea, mm */
 #ifdef TARGET_X86_64
             if (s->dflag == MO_64) {
-                tcg_gen_ld_i64(cpu_T[0], cpu_env, 
+                tcg_gen_ld_i64(cpu_T[0], cpu_env,
                                offsetof(CPUX86State,fpregs[reg].mmx));
                 gen_ldst_modrm(env, s, modrm, MO_64, OR_TMP0, 1);
             } else
 #endif
             {
-                tcg_gen_ld32u_tl(cpu_T[0], cpu_env, 
+                tcg_gen_ld32u_tl(cpu_T[0], cpu_env,
                                  offsetof(CPUX86State,fpregs[reg].mmx.MMX_L(0)));
                 gen_ldst_modrm(env, s, modrm, MO_32, OR_TMP0, 1);
             }
@@ -3279,13 +3281,13 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
         case 0x17e: /* movd ea, xmm */
 #ifdef TARGET_X86_64
             if (s->dflag == MO_64) {
-                tcg_gen_ld_i64(cpu_T[0], cpu_env, 
+                tcg_gen_ld_i64(cpu_T[0], cpu_env,
                                offsetof(CPUX86State,xmm_regs[reg].XMM_Q(0)));
                 gen_ldst_modrm(env, s, modrm, MO_64, OR_TMP0, 1);
             } else
 #endif
             {
-                tcg_gen_ld32u_tl(cpu_T[0], cpu_env, 
+                tcg_gen_ld32u_tl(cpu_T[0], cpu_env,
                                  offsetof(CPUX86State,xmm_regs[reg].XMM_L(0)));
                 gen_ldst_modrm(env, s, modrm, MO_32, OR_TMP0, 1);
             }
@@ -3410,14 +3412,14 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
             break;
         case 0x050: /* movmskps */
             rm = (modrm & 7) | REX_B(s);
-            tcg_gen_addi_ptr(cpu_ptr0, cpu_env, 
+            tcg_gen_addi_ptr(cpu_ptr0, cpu_env,
                              offsetof(CPUX86State,xmm_regs[rm]));
             gen_helper_movmskps(cpu_tmp2_i32, cpu_env, cpu_ptr0);
             tcg_gen_extu_i32_tl(cpu_regs[reg], cpu_tmp2_i32);
             break;
         case 0x150: /* movmskpd */
             rm = (modrm & 7) | REX_B(s);
-            tcg_gen_addi_ptr(cpu_ptr0, cpu_env, 
+            tcg_gen_addi_ptr(cpu_ptr0, cpu_env,
                              offsetof(CPUX86State,xmm_regs[rm]));
             gen_helper_movmskpd(cpu_tmp2_i32, cpu_env, cpu_ptr0);
             tcg_gen_extu_i32_tl(cpu_regs[reg], cpu_tmp2_i32);
@@ -5219,7 +5221,7 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
             gen_lea_modrm(env, s, modrm);
             gen_helper_cmpxchg16b(cpu_env, cpu_A0);
         } else
-#endif        
+#endif
         {
             if (!(s->cpuid_features & CPUID_CX8))
                 goto illegal_op;
@@ -6277,7 +6279,7 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
     case 0x6d:
         ot = mo_b_d32(b, dflag);
         tcg_gen_ext16u_tl(cpu_T[0], cpu_regs[R_EDX]);
-        gen_check_io(s, ot, pc_start - s->cs_base, 
+        gen_check_io(s, ot, pc_start - s->cs_base,
                      SVM_IOIO_TYPE_MASK | svm_is_rep(prefixes) | 4);
         if (prefixes & (PREFIX_REPZ | PREFIX_REPNZ)) {
             gen_repz_ins(s, ot, pc_start - s->cs_base, s->pc - s->cs_base);
@@ -7339,7 +7341,7 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
                     break;
                 case 4: /* STGI */
                     if ((!(s->flags & HF_SVME_MASK) &&
-                         !(s->cpuid_ext3_features & CPUID_EXT3_SKINIT)) || 
+                         !(s->cpuid_ext3_features & CPUID_EXT3_SKINIT)) ||
                         !s->pe)
                         goto illegal_op;
                     if (s->cpl != 0) {
@@ -7360,8 +7362,8 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
                     }
                     break;
                 case 6: /* SKINIT */
-                    if ((!(s->flags & HF_SVME_MASK) && 
-                         !(s->cpuid_ext3_features & CPUID_EXT3_SKINIT)) || 
+                    if ((!(s->flags & HF_SVME_MASK) &&
+                         !(s->cpuid_ext3_features & CPUID_EXT3_SKINIT)) ||
                         !s->pe)
                         goto illegal_op;
                     gen_helper_skinit(cpu_env);
@@ -7902,6 +7904,19 @@ void optimize_flags_init(void)
     }
 }
 
+#if defined(CONFIG_DECREE_USER)
+static inline void gen_insn_retired()
+{
+    TCGv_i64 count;
+
+    count = tcg_temp_new_i64();
+    tcg_gen_ld_i64(count, cpu_env, offsetof(CPUX86State, insn_retired));
+    tcg_gen_addi_i64(count, count, 1);
+    tcg_gen_st_i64(count, cpu_env, offsetof(CPUX86State, insn_retired));
+    tcg_temp_free_i64(count);
+}
+#endif
+
 /* generate intermediate code in gen_opc_buf and gen_opparam_buf for
    basic block 'tb'. If search_pc is TRUE, also generate PC
    information for each intermediate instruction. */
@@ -8028,6 +8043,14 @@ static inline void gen_intermediate_code_internal(X86CPU *cpu,
 
         pc_ptr = disas_insn(env, dc, pc_ptr);
         num_insns++;
+
+#if defined(CONFIG_DECREE_USER)
+        if (is_replaying()) {
+            /* keep track of the number of instructions executed for replay */
+            gen_insn_retired();
+        }
+#endif
+
         /* stop translation if indicated */
         if (dc->is_jmp)
             break;

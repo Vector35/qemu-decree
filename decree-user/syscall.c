@@ -234,11 +234,10 @@ static abi_long do_select(int n,
 /* do_syscall() should always have a single exit point at the end so
    that actions, such as logging of syscall results, can be performed.
    All errnos that do_syscall() returns must be -TARGET_<errcode>. */
-abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
+abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                     abi_long arg2, abi_long arg3, abi_long arg4,
                     abi_long arg5, abi_long arg6)
 {
-    /* CPUState *cpu = ENV_GET_CPU(cpu_env); */
     abi_long ret;
     abi_ulong i;
     void *p;

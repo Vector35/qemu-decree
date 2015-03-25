@@ -185,7 +185,7 @@ abi_long memcpy_to_target(abi_ulong dest, const void *src,
 void target_set_brk(abi_ulong new_brk);
 abi_long do_brk(abi_ulong new_brk);
 void syscall_init(void);
-abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
+abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                     abi_long arg2, abi_long arg3, abi_long arg4,
                     abi_long arg5, abi_long arg6);
 void gemu_log(const char *fmt, ...) GCC_FMT_ATTR(1, 2);
@@ -425,7 +425,7 @@ static inline void *lock_user_string(abi_ulong guest_addr)
 
 /* Record/replay functions */
 #define REPLAY_MAGIC 0xbd46f4dd
-#define REPLAY_VERSION 2
+#define REPLAY_VERSION 3
 
 #define REPLAY_FLAG_COMPACT 1 /* When set, doesn't include validation information */
 
@@ -437,6 +437,7 @@ struct replay_header {
     uint32_t flags; /* See above for available flags */
 };
 
+#define REPLAY_EVENT_START 0
 #define REPLAY_EVENT_TERMINATE 1
 #define REPLAY_EVENT_TRANSMIT 2
 #define REPLAY_EVENT_RECEIVE 3

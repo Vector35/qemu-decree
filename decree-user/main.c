@@ -1103,6 +1103,23 @@ int main(int argc, char **argv)
 #error unsupported target CPU
 #endif
 
+    if (is_replaying()) {
+        /* Replay should have a start event at the beginning */
+        struct replay_event evt;
+        void* data;
+
+        data = read_replay_event(&evt);
+        if ((evt.event_id != REPLAY_EVENT_START)) {
+            fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
+            abort();
+        }
+
+        free_replay_event(data);
+    } else {
+        /* Generate a startup event so that initial instruction timing is more accurate */
+        replay_write_event(REPLAY_EVENT_START, 0, 0);
+    }
+
     if (gdbstub_port) {
         if (gdbserver_start(gdbstub_port) < 0) {
             fprintf(stderr, "qemu: could not open gdbserver on port %d\n",

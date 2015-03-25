@@ -978,6 +978,11 @@ typedef struct CPUX86State {
     uint64_t xss;
 
     TPRAccess tpr_access_type;
+
+#if defined(CONFIG_DECREE_USER)
+    /* for tracking total instructions executed in replay */
+    uint64_t insn_retired;
+#endif
 } CPUX86State;
 
 #include "cpu-qom.h"
