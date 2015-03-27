@@ -165,7 +165,7 @@ int analysis_output_create(const char *filename)
     return 1;
 }
 
-void analysis_output_close()
+void analysis_output_close(void)
 {
     if (output_fd < 0)
         return;
@@ -364,7 +364,7 @@ void activate_pending_analysis(CPUArchState *env)
     }
 }
 
-void init_analysis()
+void init_analysis(void)
 {
     init_call_trace_analysis();
 }

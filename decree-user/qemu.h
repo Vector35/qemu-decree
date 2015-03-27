@@ -20,6 +20,8 @@
 #include "exec/gdbstub.h"
 #include "qemu/queue.h"
 
+#define X86_ALT_OPERAND_NAMES
+
 #define THREAD __thread
 
 /* This struct is used to hold certain information about the image.

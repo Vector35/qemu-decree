@@ -35,7 +35,6 @@
 #include "qemu/timer.h"
 #include "qemu/envlist.h"
 #include "elf.h"
-#include "asmx86/asmx86.h"
 
 int singlestep;
 int gdbstub_port;
