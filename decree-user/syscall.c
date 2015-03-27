@@ -250,8 +250,9 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
 
     switch(num) {
     case 1: /* terminate */
-        if (!replay_close(0))
+        if (!replay_close(env, 0))
             abort();
+        analysis_output_close();
         _exit(arg1);
         ret = 0; /* avoid warning */
         break;
@@ -284,6 +285,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 abort();
             }
 
+            analysis_sync_wall_time(env, evt.start_wall_time, evt.end_wall_time);
             ret = evt.result;
 
             if ((ret > 0) && (ret > arg3)) {
@@ -366,6 +368,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 abort();
             }
 
+            analysis_sync_wall_time(env, evt.start_wall_time, evt.end_wall_time);
             ret = evt.result;
 
             if ((ret > 0) && (ret > arg3)) {
@@ -438,6 +441,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 abort();
             }
 
+            analysis_sync_wall_time(env, evt.start_wall_time, evt.end_wall_time);
             ret = evt.result;
 
             if (ret >= 0) {
@@ -551,6 +555,8 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                     fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
                     abort();
                 }
+
+                analysis_sync_wall_time(env, evt.start_wall_time, evt.end_wall_time);
 
                 if (evt.result != arg2) {
                     fprintf(stderr, "Replay length mismatch at index %d\n", evt.global_ordering);

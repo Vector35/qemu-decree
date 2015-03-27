@@ -17,11 +17,13 @@ ifdef CONFIG_USER_ONLY
 ifdef CONFIG_DECREE_USER
 QEMU_PROG=qemu-decree
 QEMU_PROG_BUILD = $(QEMU_PROG)
-QEMU_CB_TEST_PROG = qemu-cb-test qemu_cb_replay.py
+QEMU_CB_TEST_PROG = qemu-cb-test qemu_cb_replay.py print-analysis
 qemu-cb-test: ../decree-user/qemu-cb-test
 	cp ../decree-user/qemu-cb-test qemu-cb-test
 qemu_cb_replay.py: ../decree-user/qemu_cb_replay.py
 	cp ../decree-user/qemu_cb_replay.py qemu_cb_replay.py
+print-analysis: ../decree-user/print-analysis.py
+	cp ../decree-user/print-analysis.py print-analysis
 else
 # user emulator name
 QEMU_PROG=qemu-$(TARGET_NAME)

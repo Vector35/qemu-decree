@@ -458,11 +458,19 @@ static void QEMU_NORETURN force_sig(int target_sig)
             target_sig, strsignal(host_sig), "core dumped" );
     }
 
+    /* If we SIGARBT when closing the file, terminate */
+    sigfillset(&act.sa_mask);
+    act.sa_handler = SIG_DFL;
+    act.sa_flags = 0;
+    sigaction(SIGABRT, &act, NULL);
+
     /* Process is about to die, finalize any active replay */
-    if (!replay_close(target_sig)) {
+    if (!replay_close(env, target_sig)) {
         /* Replay is in invalid state, send abort signal instead */
         host_sig = SIGABRT;
     }
+
+    analysis_output_close();
 
     /* The proper exit code for dying from an uncaught signal is
      * -<signal>.  The kernel doesn't allow exit() or _exit() to pass

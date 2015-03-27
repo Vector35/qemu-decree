@@ -425,7 +425,7 @@ static inline void *lock_user_string(abi_ulong guest_addr)
 
 /* Record/replay functions */
 #define REPLAY_MAGIC 0xbd46f4dd
-#define REPLAY_VERSION 3
+#define REPLAY_VERSION 4
 
 #define REPLAY_FLAG_COMPACT 1 /* When set, doesn't include validation information */
 
@@ -433,8 +433,9 @@ struct replay_header {
     uint32_t magic; /* Must equal REPLAY_MAGIC */
     uint16_t version; /* Replay version, set to REPLAY_VERSION */
     uint16_t binary_count; /* Number of binaries running in this challenge */
+    uint16_t binary_id; /* Index of binary when running multiple binaries (starting at zero) */
+    uint16_t flags; /* See above for available flags */
     uint32_t seed; /* Random seed for this process */
-    uint32_t flags; /* See above for available flags */
 };
 
 #define REPLAY_EVENT_START 0
@@ -456,7 +457,7 @@ struct replay_event {
 
 int replay_create(const char* filename, uint32_t flags, uint32_t seed);
 int replay_open(const char* filename);
-int replay_close(int signal);
+int replay_close(CPUArchState *env, int signal);
 
 uint32_t get_physical_wall_time(void);
 uint32_t get_current_wall_time(void);
@@ -472,6 +473,59 @@ int is_replaying(void);
 int replay_has_validation(void);
 void* read_replay_event(struct replay_event* evt);
 void free_replay_event(void* data);
+
+/* Analysis output functions */
+#define ANALYSIS_OUTPUT_MAGIC 0xbed3a629
+#define ANALYSIS_OUTPUT_VERSION 1
+
+#define ANALYSIS_DEFINE_EVENT 0 /* Special event that defines the name of another event */
+
+struct analysis_output_header {
+    uint32_t magic; /* Must equal ANALYSIS_OUTPUT_MAGIC */
+    uint32_t version; /* Version of file, set to ANALYSIS_OUTPUT_VERSION */
+    uint16_t binary_id; /* Index of binary when running multiple binaries (starting at zero) */
+    uint16_t flags; /* Currently unused */
+};
+
+struct analysis_event_header {
+    int32_t event_id;
+    uint32_t length;
+    double wall_time;
+    uint64_t insn_count;
+};
+
+struct analysis_define_event_data {
+    int32_t event_id;
+    char name[0];
+};
+
+int analysis_output_create(const char *filename);
+void analysis_output_close(void);
+
+void analysis_sync_wall_time(CPUArchState *env, uint32_t event_wall_time, uint32_t resume_wall_time);
+
+int32_t analysis_create_named_event(CPUArchState *env, const char *name);
+void analysis_output_event(CPUArchState *env, int32_t event_id, const void *data, size_t len);
+
+/* Analysis type registration */
+typedef struct AnalysisType {
+    char *name;
+    char *desc;
+    int (*activate)(CPUArchState *env, int argc, char **argv);
+    QTAILQ_ENTRY(AnalysisType) entry;
+} AnalysisType;
+
+void register_analysis_type(const char *name, const char *desc, int (*activate)(CPUArchState *env, int argc, char **argv));
+AnalysisType *find_analysis_type(const char *name);
+void show_available_analysis_types(void);
+
+void add_pending_analysis(const char *arg);
+void activate_pending_analysis(CPUArchState *env);
+
+/* Analysis type initializers */
+void init_analysis(void);
+
+void init_call_trace_analysis(void);
 
 /* Instrumentation API */
 struct Instruction;

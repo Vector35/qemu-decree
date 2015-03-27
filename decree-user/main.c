@@ -73,6 +73,8 @@ static char* replay_playback_name[MAX_BINARIES];
 static int replay_playback_count = 0;
 int record_replay_flags = 0;
 
+static char* analysis_output_name = NULL;
+
 struct shared_data *shared = NULL;
 
 static void usage(void);
@@ -428,6 +430,21 @@ static void handle_arg_compact(const char* arg)
     record_replay_flags |= REPLAY_FLAG_COMPACT;
 }
 
+static void handle_arg_analyze(const char* arg)
+{
+    analysis_output_name = strdup(arg);
+}
+
+static void handle_arg_analysis_type(const char* arg)
+{
+    if (is_help_option(arg)) {
+        show_available_analysis_types();
+        exit(1);
+    }
+
+    add_pending_analysis(arg);
+}
+
 static void handle_arg_randseed(const char *arg)
 {
     unsigned long long seed;
@@ -564,6 +581,10 @@ static const struct qemu_argument arg_table[] = {
      "name",       "Replay a recorded execution"},
     {"compact",    "QEMU_RECORD_COMPACT", false,  handle_arg_compact,
      "",           "Leave out validation information for smaller replay"},
+    {"analyze",    "QEMU_ANALYZE",     true,  handle_arg_analyze,
+     "name",       "Generate an analysis output file"},
+    {"A",          "QEMU_ANALYSIS_TYPE", true, handle_arg_analysis_type,
+     "type[,args]", "Activate an analysis, multiple allowed (-A help for list)"},
     {"singlestep", "QEMU_SINGLESTEP",  false, handle_arg_singlestep,
      "",           "run in singlestep mode"},
     {"strace",     "QEMU_STRACE",      false, handle_arg_strace,
@@ -752,6 +773,8 @@ int main(int argc, char **argv)
 #if defined(cpudef_setup)
     cpudef_setup(); /* parse cpu definitions in target config file (TBD) */
 #endif
+
+    init_analysis();
 
     random_seed = (int)time(NULL);
 
@@ -1026,6 +1049,29 @@ int main(int argc, char **argv)
         }
     }
 
+    if (analysis_output_name) {
+        /* If generating analysis output, open the file now */
+        char* output_filename;
+        char* binary_path = strdup(filename);
+        char* binary_basename = basename(binary_path);
+
+        if (asprintf(&output_filename, "%s-%s.analyze", analysis_output_name, binary_basename) < 0) {
+            fprintf(stderr, "Invalid analysis output file name\n");
+            _exit(1);
+        }
+
+        free(binary_path);
+
+        if (!analysis_output_create(output_filename)) {
+            fprintf(stderr, "Analysis output file not created\n");
+            _exit(1);
+        }
+
+        free(output_filename);
+
+        activate_pending_analysis(env);
+    }
+
     /* Now that the optional replay file is ready and we are about to execute, set the random seed */
     srand(random_seed);
 
@@ -1114,6 +1160,8 @@ int main(int argc, char **argv)
             fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
             abort();
         }
+
+        analysis_sync_wall_time(env, evt.start_wall_time, evt.end_wall_time);
 
         free_replay_event(data);
     } else {
