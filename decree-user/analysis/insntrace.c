@@ -109,8 +109,9 @@ static int activate_insn_trace(CPUArchState *env, int argc, char **argv)
 {
     int regs = 0;
     int disasm = 0;
+    int i;
 
-    for (int i = 0; i < argc; i++) {
+    for (i = 0; i < argc; i++) {
         if (!strcmp(argv[i], "regs"))
             regs = 1;
         else if (!strcmp(argv[i], "disasm"))
