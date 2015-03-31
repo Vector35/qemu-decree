@@ -528,11 +528,12 @@ void activate_pending_analysis(CPUArchState *env);
 void init_analysis(void);
 
 void init_call_trace_analysis(void);
+void init_branch_trace_analysis(void);
 
 /* Instrumentation API */
 struct Instruction;
 typedef int (*InsnInstrumentationFilterFn)(CPUArchState *env, void *data, abi_ulong pc, struct Instruction *insn);
-typedef void (*InsnInstrumentationFn)(CPUArchState *env, void* data, struct Instruction *insn);
+typedef void (*InsnInstrumentationFn)(CPUArchState *env, void* data, abi_ulong pc, struct Instruction *insn);
 
 typedef struct InsnInstrumentation {
     void *data; /* Opaque data for use by the instrumentation implementation */

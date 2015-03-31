@@ -220,5 +220,5 @@ DEF_HELPER_3(rcrq, tl, env, tl, tl)
 
 #if defined(CONFIG_DECREE_USER)
 DEF_HELPER_4(instrument_before, void, env, ptr, i64, i64)
-DEF_HELPER_4(instrument_after, void, env, ptr, i64, i64)
+DEF_HELPER_2(instrument_after, void, env, ptr)
 #endif

@@ -619,6 +619,9 @@ void helper_debug(CPUX86State *env)
 }
 
 #if defined(CONFIG_DECREE_USER)
+static target_ulong insn_eip;
+static Instruction cur_insn;
+
 void helper_instrument_before(CPUX86State *env, void *data, uint64_t code1, uint64_t code2)
 {
     InsnInstrumentation *instrument = (InsnInstrumentation*)data;
@@ -628,30 +631,20 @@ void helper_instrument_before(CPUX86State *env, void *data, uint64_t code1, uint
         };
         uint8_t bytes[16];
     } code;
-    Instruction insn;
 
     code.a = code1;
     code.b = code2;
 
-    Disassemble32(code.bytes, env->eip, 15, &insn);
-    instrument->before(env, instrument->data, &insn);
+    insn_eip = env->eip;
+    Disassemble32(code.bytes, insn_eip, 15, &cur_insn);
+
+    if (instrument->before)
+        instrument->before(env, instrument->data, insn_eip, &cur_insn);
 }
 
-void helper_instrument_after(CPUX86State *env, void *data, uint64_t code1, uint64_t code2)
+void helper_instrument_after(CPUX86State *env, void *data)
 {
     InsnInstrumentation *instrument = (InsnInstrumentation*)data;
-    union {
-        struct {
-            uint64_t a, b;
-        };
-        uint8_t bytes[16];
-    } code;
-    Instruction insn;
-
-    code.a = code1;
-    code.b = code2;
-
-    Disassemble32(code.bytes, env->eip, 15, &insn);
-    instrument->after(env, instrument->data, &insn);
+    instrument->after(env, instrument->data, insn_eip, &cur_insn);
 }
 #endif

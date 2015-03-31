@@ -367,4 +367,5 @@ void activate_pending_analysis(CPUArchState *env)
 void init_analysis(void)
 {
     init_call_trace_analysis();
+    init_branch_trace_analysis();
 }

@@ -2219,16 +2219,15 @@ static inline void gen_goto_tb(DisasContext *s, int tb_num, target_ulong eip)
     TranslationBlock *tb;
     target_ulong pc;
 
-#if defined(CONFIG_DECREE_USER)
-    gen_insn_retired(s, 0, eip);
-#endif
-
     pc = s->cs_base + eip;
     tb = s->tb;
     /* NOTE: we handle the case where the TB spans two pages here */
     if ((pc & TARGET_PAGE_MASK) == (tb->pc & TARGET_PAGE_MASK) ||
         (pc & TARGET_PAGE_MASK) == ((s->pc - 1) & TARGET_PAGE_MASK))  {
         /* jump to same page: we can use a direct jump */
+#if defined(CONFIG_DECREE_USER)
+        gen_insn_retired(s, 0, eip);
+#endif
         tcg_gen_goto_tb(tb_num);
         gen_jmp_im(eip);
         tcg_gen_exit_tb((uintptr_t)tb + tb_num);
@@ -7958,7 +7957,9 @@ static inline void gen_instrument_before(DisasContext *s, InsnInstrumentation *i
 {
     TCGv_ptr data;
 
-    if (!instrument->before)
+    /* Must always generate the "before" instrumentation as this will save the instruction address and
+       disassembly.  If neither callback is provided, we don't need to emit either instrumentation. */
+    if ((!instrument->before) && (!instrument->after))
         return;
 
     /* Ensure CPU state is up to date before calling instrumentation callback */
@@ -7986,7 +7987,7 @@ static inline void gen_instrument_after(DisasContext *s, InsnInstrumentation *in
 
     /* Generate call to instrumentation */
     data = tcg_const_ptr(instrument);
-    gen_helper_instrument_after(cpu_env, data, tcg_const_i64(s->insn_contents[0]), tcg_const_i64(s->insn_contents[1]));
+    gen_helper_instrument_after(cpu_env, data);
     tcg_temp_free_ptr(data);
 }
 

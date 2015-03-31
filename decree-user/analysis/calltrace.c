@@ -2,7 +2,7 @@
 #include "asmx86/asmx86.h"
 
 struct call_trace_event {
-    uint32_t target, stack_ptr;
+    uint32_t from, to, stack_ptr;
 };
 
 static int call_event_id = -1;
@@ -17,11 +17,12 @@ static int call_trace_filter(CPUArchState *env, void *data, abi_ulong pc, struct
     return 0;
 }
 
-static void call_trace_after_insn(CPUArchState *env, void *data, struct Instruction *insn)
+static void call_trace_after_insn(CPUArchState *env, void *data, abi_ulong insn_eip, struct Instruction *insn)
 {
     int event_id;
     struct call_trace_event event;
-    event.target = env->eip;
+    event.from = insn_eip;
+    event.to = env->eip;
     event.stack_ptr = env->regs[R_ESP];
 
     if (insn->operation == CALL)

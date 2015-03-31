@@ -3,12 +3,19 @@ import struct
 import sys
 
 def handle_calltrace_call(prefix, contents):
-    eip, esp = struct.unpack("<II", contents)
-    print "%s Call to 0x%x, esp=0x%x" % (prefix, eip, esp)
+    from_eip, to_eip, esp = struct.unpack("<III", contents)
+    print "%s Call to 0x%x from 0x%x, esp=0x%x" % (prefix, to_eip, from_eip, esp)
 
 def handle_calltrace_return(prefix, contents):
-    eip, esp = struct.unpack("<II", contents)
-    print "%s Return to 0x%x, esp=0x%x" % (prefix, eip, esp)
+    from_eip, to_eip, esp = struct.unpack("<III", contents)
+    print "%s Return to 0x%x from 0x%x, esp=0x%x" % (prefix, to_eip, from_eip, esp)
+
+def handle_branch(prefix, contents):
+    branch_type, from_eip, to_eip = struct.unpack("<III", contents)
+    if branch_type > 4:
+        return
+    type_name = ["Call", "Return", "Jump", "Conditional (not taken)", "Conditional (taken)"][branch_type]
+    print "%s %s from 0x%x to 0x%x" % (prefix, type_name, from_eip, to_eip)
 
 ANALYSIS_OUTPUT_MAGIC = 0xbed3a629
 ANALYSIS_OUTPUT_VERSION = 1
@@ -19,6 +26,7 @@ analysis_events = {}
 event_handler = {}
 event_handler["calltrace_call"] = handle_calltrace_call
 event_handler["calltrace_return"] = handle_calltrace_return
+event_handler["branch"] = handle_branch
 
 if len(sys.argv) < 2:
     print "Usage: %s <filename>" % sys.argv[0]
