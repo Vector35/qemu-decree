@@ -196,6 +196,9 @@ void analysis_output_close(void)
 
 void analysis_sync_wall_time(CPUArchState *env, uint32_t event_wall_time, uint32_t resume_wall_time)
 {
+    if (output_fd < 0)
+        return;
+
     if (event_wall_time == 0) {
         /* Events may have a start time of zero, this indicates the call did not block and we should
            just make the start and end times match */
