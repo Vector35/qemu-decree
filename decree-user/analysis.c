@@ -111,8 +111,10 @@ static void output_write(const void* data, size_t len)
     }
 }
 
-static void output_buffered_write(const void* data, size_t len)
+static void output_buffered_write(const void* hdr, size_t hdr_len, const void* data, size_t data_len)
 {
+    size_t len = hdr_len + data_len;
+
     if ((consumed_output_buffer + len) > OUTPUT_BUFFER_SIZE) {
         /* Update the total file size and the file offset of the last event that has valid wall time */
         wall_time_file_offset += wall_time_update_offset;
@@ -129,12 +131,15 @@ static void output_buffered_write(const void* data, size_t len)
     if (len > OUTPUT_BUFFER_SIZE) {
         /* Event is too big for the buffer */
         current_file_offset += len;
-        output_write(data, len);
+        output_write(hdr, hdr_len);
+        output_write(data, data_len);
         return;
     }
 
-    memcpy(&output_buffer[consumed_output_buffer], data, len);
-    consumed_output_buffer += len;
+    memcpy(&output_buffer[consumed_output_buffer], hdr, hdr_len);
+    consumed_output_buffer += hdr_len;
+    memcpy(&output_buffer[consumed_output_buffer], data, data_len);
+    consumed_output_buffer += data_len;
 }
 
 int analysis_output_create(const char *filename)
@@ -228,6 +233,12 @@ void analysis_sync_wall_time(CPUArchState *env, uint32_t event_wall_time, uint32
         }
     }
 
+    /* Ensure write pointer is at end of file */
+    if (lseek(output_fd, current_file_offset, SEEK_SET) < 0) {
+        fprintf(stderr, "Failed to seek when updating analysis output event wall time\n");
+        abort();
+    }
+
     while (wall_time_update_offset < consumed_output_buffer) {
         /* Update in-memory events for wall time calculation */
         struct analysis_event_header hdr;
@@ -285,10 +296,7 @@ void analysis_output_event(CPUArchState *env, int32_t event_id, const void *data
     hdr.length = (uint32_t)len;
     hdr.wall_time = 0; /* Will be updated by analysis_sync_wall_time */
     hdr.insn_count = env->insn_retired;
-    output_buffered_write(&hdr, sizeof(hdr));
-
-    if (len != 0)
-        output_buffered_write(data, len);
+    output_buffered_write(&hdr, sizeof(hdr), data, len);
 }
 
 void register_analysis_type(const char *name, const char *desc, int (*activate)(CPUArchState *env, int argc, char **argv))
@@ -368,4 +376,5 @@ void init_analysis(void)
 {
     init_call_trace_analysis();
     init_branch_trace_analysis();
+    init_insn_trace_analysis();
 }

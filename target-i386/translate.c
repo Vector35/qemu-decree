@@ -133,6 +133,7 @@ typedef struct DisasContext {
     int cpuid_7_0_ebx_features;
 #if defined(CONFIG_DECREE_USER)
     uint64_t insn_contents[2];
+    int instrumentation_prepared;
 #endif
 } DisasContext;
 
@@ -142,6 +143,7 @@ static void gen_jmp_tb(DisasContext *s, target_ulong eip, int tb_num);
 static void gen_op(DisasContext *s1, int op, TCGMemOp ot, int d);
 #if defined(CONFIG_DECREE_USER)
 static inline void gen_insn_retired(DisasContext *s, int end_of_block, target_ulong eip);
+static inline void gen_prepare_instrumentation(DisasContext *s);
 #endif
 
 /* i386 arith/logic operations */
@@ -6923,6 +6925,16 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
         break;
     case 0xcd: /* int N */
         val = cpu_ldub_code(env, s->pc++);
+#if defined(CONFIG_DECREE_USER)
+        /* Interrupts will break out of the CPU loop, so if there is any instrumentation at all we need
+           to ensure we save off the instruction data.  Once the interrupt is handled, the instruction
+           information will be needed to pass back to the instrumentation filter callbacks, as the
+           interrupt handler will not know which instrumentations needed the instruction. */
+        if (unlikely(!QTAILQ_EMPTY(&instrumentation.insn_instrumentation)) && !s->instrumentation_prepared) {
+            gen_prepare_instrumentation(s);
+            s->instrumentation_prepared = 1;
+        }
+#endif
         if (s->vm86 && s->iopl != 3) {
             gen_exception(s, EXCP0D_GPF, pc_start - s->cs_base);
         } else {
@@ -7945,12 +7957,21 @@ static inline int check_instrumentation_filter(CPUX86State *env, InsnInstrumenta
 
     memcpy(insn_contents, bytes, 16);
 
+    /* If there isn't a filter, instrument all instructions */
+    if (!instrument->filter)
+        return 1;
+
     /* Disassemble the instruction */
     if (!Disassemble32(bytes, pc, len, &insn))
         return 0;
 
     /* Call the filter function to see if this instruction need instrumentation */
     return instrument->filter(env, instrument->data, pc, &insn);
+}
+
+static inline void gen_prepare_instrumentation(DisasContext *s)
+{
+    gen_helper_prepare_instrumentation(cpu_env, tcg_const_i64(s->insn_contents[0]), tcg_const_i64(s->insn_contents[1]));
 }
 
 static inline void gen_instrument_before(DisasContext *s, InsnInstrumentation *instrument, abi_ulong pc)
@@ -7968,7 +7989,7 @@ static inline void gen_instrument_before(DisasContext *s, InsnInstrumentation *i
 
     /* Generate call to instrumentation */
     data = tcg_const_ptr(instrument);
-    gen_helper_instrument_before(cpu_env, data, tcg_const_i64(s->insn_contents[0]), tcg_const_i64(s->insn_contents[1]));
+    gen_helper_instrument_before(cpu_env, data);
     tcg_temp_free_ptr(data);
 }
 
@@ -8143,10 +8164,15 @@ static inline void gen_intermediate_code_internal(X86CPU *cpu,
             gen_io_start();
 
 #if defined(CONFIG_DECREE_USER)
+        dc->instrumentation_prepared = 0;
         if (unlikely(!QTAILQ_EMPTY(&instrumentation.insn_instrumentation))) {
             QTAILQ_FOREACH(instrument, &instrumentation.insn_instrumentation, entry) {
                 instrument->active = check_instrumentation_filter(env, instrument, pc_ptr, dc->insn_contents);
                 if (instrument->active) {
+                    if (!dc->instrumentation_prepared) {
+                        gen_prepare_instrumentation(dc);
+                        dc->instrumentation_prepared = 1;
+                    }
                     gen_instrument_before(dc, instrument, pc_ptr);
                 }
             }

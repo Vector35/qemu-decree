@@ -17,6 +17,28 @@ def handle_branch(prefix, contents):
     type_name = ["Call", "Return", "Jump", "Conditional (not taken)", "Conditional (taken)"][branch_type]
     print "%s %s from 0x%x to 0x%x" % (prefix, type_name, from_eip, to_eip)
 
+def handle_instruction(prefix, contents):
+    eip = struct.unpack("<I", contents[0:4])[0]
+    bytestr = contents[4:].encode("hex")
+    print "%s 0x%x  %s" % (prefix, eip, bytestr)
+
+def handle_instruction_disasm(prefix, contents):
+    eip = struct.unpack("<I", contents[0:4])[0]
+    print "%s 0x%x  %s" % (prefix, eip, contents[4:])
+
+def handle_instruction_regs(prefix, contents):
+    eip, eax, ecx, edx, ebx, esp, ebp, esi, edi = struct.unpack("<IIIIIIIII", contents[0:36])
+    bytestr = contents[36:].encode("hex")
+    print "%s eax=%.8x ecx=%.8x edx=%.8x ebx=%.8x" % (prefix, eax, ecx, edx, ebx)
+    print "%s esp=%.8x ebp=%.8x esi=%.8x edi=%.8x" % (" " * len(prefix), esp, ebp, esi, edi)
+    print "%s 0x%x  %s" % (" " * len(prefix), eip, bytestr)
+
+def handle_instruction_regs_disasm(prefix, contents):
+    eip, eax, ecx, edx, ebx, esp, ebp, esi, edi = struct.unpack("<IIIIIIIII", contents[0:36])
+    print "%s eax=%.8x ecx=%.8x edx=%.8x ebx=%.8x" % (prefix, eax, ecx, edx, ebx)
+    print "%s esp=%.8x ebp=%.8x esi=%.8x edi=%.8x" % (" " * len(prefix), esp, ebp, esi, edi)
+    print "%s 0x%x  %s" % (" " * len(prefix), eip, contents[36:])
+
 ANALYSIS_OUTPUT_MAGIC = 0xbed3a629
 ANALYSIS_OUTPUT_VERSION = 1
 ANALYSIS_DEFINE_EVENT = 0
@@ -27,6 +49,10 @@ event_handler = {}
 event_handler["calltrace_call"] = handle_calltrace_call
 event_handler["calltrace_return"] = handle_calltrace_return
 event_handler["branch"] = handle_branch
+event_handler["instruction"] = handle_instruction
+event_handler["instruction_regs"] = handle_instruction_regs
+event_handler["instruction_disasm"] = handle_instruction_disasm
+event_handler["instruction_regs_disasm"] = handle_instruction_regs_disasm
 
 if len(sys.argv) < 2:
     print "Usage: %s <filename>" % sys.argv[0]

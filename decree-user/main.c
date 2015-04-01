@@ -189,6 +189,32 @@ void cpu_smm_update(CPUX86State *env)
 {
 }
 
+static void retire_syscall(CPUX86State *env)
+{
+    InsnInstrumentation *instrument;
+
+    if (unlikely(!QTAILQ_EMPTY(&instrumentation.insn_instrumentation))) {
+        QTAILQ_FOREACH(instrument, &instrumentation.insn_instrumentation, entry) {
+            /* Ignore instrumentation that does not need post-processing */
+            if (!instrument->after)
+                continue;
+
+            /* Check filter before calling the callback.  We don't know which instrumentations passed
+             the filter before the instruction started executing. */
+            if (instrument->filter) {
+                if (!instrument->filter(env, instrument->data, insn_eip, &cur_insn))
+                    continue;
+            }
+
+            /* This instrumentation applies, call the after callback now */
+            instrument->after(env, instrument->data, insn_eip, &cur_insn);
+        }
+    }
+
+    if (is_replaying())
+        env->insn_retired++;
+}
+
 void cpu_loop(CPUX86State *env)
 {
     CPUState *cs = CPU(x86_env_get_cpu(env));
@@ -220,6 +246,7 @@ void cpu_loop(CPUX86State *env)
                 }
                 break;
             }
+            retire_syscall(env);
             break;
         case EXCP_SYSCALL:
             info.si_signo = TARGET_SIGILL;

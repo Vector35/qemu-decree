@@ -529,6 +529,7 @@ void init_analysis(void);
 
 void init_call_trace_analysis(void);
 void init_branch_trace_analysis(void);
+void init_insn_trace_analysis(void);
 
 /* Instrumentation API */
 struct Instruction;
@@ -549,6 +550,8 @@ struct InstrumentationState {
 };
 
 extern struct InstrumentationState instrumentation;
+extern target_ulong insn_eip;
+extern struct Instruction cur_insn;
 
 InsnInstrumentation *add_insn_instrumentation(CPUArchState *env, InsnInstrumentationFilterFn filter,
                                               InsnInstrumentationFn before, InsnInstrumentationFn after,
