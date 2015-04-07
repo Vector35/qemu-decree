@@ -143,7 +143,7 @@ static void gen_jmp_tb(DisasContext *s, target_ulong eip, int tb_num);
 static void gen_op(DisasContext *s1, int op, TCGMemOp ot, int d);
 #if defined(CONFIG_DECREE_USER)
 static inline void gen_insn_retired(DisasContext *s, int end_of_block, target_ulong eip);
-static inline void gen_prepare_instrumentation(DisasContext *s);
+static inline void gen_prepare_instrumentation(DisasContext *s, target_ulong eip);
 #endif
 
 /* i386 arith/logic operations */
@@ -6931,7 +6931,7 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
            information will be needed to pass back to the instrumentation filter callbacks, as the
            interrupt handler will not know which instrumentations needed the instruction. */
         if (unlikely(!QTAILQ_EMPTY(&instrumentation.insn_instrumentation)) && !s->instrumentation_prepared) {
-            gen_prepare_instrumentation(s);
+            gen_prepare_instrumentation(s, pc_start - s->cs_base);
             s->instrumentation_prepared = 1;
         }
 #endif
@@ -7969,12 +7969,16 @@ static inline int check_instrumentation_filter(CPUX86State *env, InsnInstrumenta
     return instrument->filter(env, instrument->data, pc, &insn);
 }
 
-static inline void gen_prepare_instrumentation(DisasContext *s)
+static inline void gen_prepare_instrumentation(DisasContext *s, abi_ulong pc)
 {
+    /* Ensure CPU state is up to date before calling instrumentation callback */
+    gen_update_cc_op(s);
+    gen_jmp_im(pc - s->cs_base);
+
     gen_helper_prepare_instrumentation(cpu_env, tcg_const_i64(s->insn_contents[0]), tcg_const_i64(s->insn_contents[1]));
 }
 
-static inline void gen_instrument_before(DisasContext *s, InsnInstrumentation *instrument, abi_ulong pc)
+static inline void gen_instrument_before(DisasContext *s, InsnInstrumentation *instrument)
 {
     TCGv_ptr data;
 
@@ -7982,10 +7986,6 @@ static inline void gen_instrument_before(DisasContext *s, InsnInstrumentation *i
        disassembly.  If neither callback is provided, we don't need to emit either instrumentation. */
     if ((!instrument->before) && (!instrument->after))
         return;
-
-    /* Ensure CPU state is up to date before calling instrumentation callback */
-    gen_update_cc_op(s);
-    gen_jmp_im(pc - s->cs_base);
 
     /* Generate call to instrumentation */
     data = tcg_const_ptr(instrument);
@@ -8170,10 +8170,10 @@ static inline void gen_intermediate_code_internal(X86CPU *cpu,
                 instrument->active = check_instrumentation_filter(env, instrument, pc_ptr, dc->insn_contents);
                 if (instrument->active) {
                     if (!dc->instrumentation_prepared) {
-                        gen_prepare_instrumentation(dc);
+                        gen_prepare_instrumentation(dc, pc_ptr);
                         dc->instrumentation_prepared = 1;
                     }
-                    gen_instrument_before(dc, instrument, pc_ptr);
+                    gen_instrument_before(dc, instrument);
                 }
             }
         }
