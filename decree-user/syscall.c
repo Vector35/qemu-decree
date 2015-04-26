@@ -281,7 +281,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
             void* data;
 
             data = read_replay_event(&evt);
-            if ((evt.event_id != REPLAY_EVENT_TRANSMIT) || (evt.fd != arg1)) {
+            if ((evt.event_id != REPLAY_EVENT_TRANSMIT) || (evt.fd != (uint16_t)arg1)) {
                 fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
                 abort();
             }
@@ -364,7 +364,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
             void* data;
 
             data = read_replay_event(&evt);
-            if ((evt.event_id != REPLAY_EVENT_RECEIVE) || (evt.fd != arg1)) {
+            if ((evt.event_id != REPLAY_EVENT_RECEIVE) || (evt.fd != (uint16_t)arg1)) {
                 fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
                 abort();
             }
@@ -437,7 +437,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
             uint32_t* data;
 
             data = (uint32_t*)read_replay_event(&evt);
-            if ((evt.event_id != REPLAY_EVENT_FDWAIT) || (evt.fd != arg1)) {
+            if ((evt.event_id != REPLAY_EVENT_FDWAIT) || (evt.fd != (uint16_t)arg1)) {
                 fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
                 abort();
             }
