@@ -2686,6 +2686,10 @@ static void x86_cpu_reset(CPUState *s)
         kvm_arch_reset_vcpu(cpu);
     }
 #endif
+
+#if defined(CONFIG_DECREE_USER)
+    env->insn_retired = 0;
+#endif
 }
 
 #ifndef CONFIG_USER_ONLY

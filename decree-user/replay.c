@@ -200,7 +200,7 @@ int replay_open(const char* filename)
     return 1;
 }
 
-int replay_close(int signal)
+int replay_close(CPUArchState *env, int signal)
 {
     int result = 1;
 
@@ -231,6 +231,9 @@ int replay_close(int signal)
             fprintf(stderr, "Expected signal %d, got signal %d\n", evt.result, signal);
             result = 0;
         }
+
+        if (result)
+            analysis_sync_wall_time(env, evt.start_wall_time, evt.end_wall_time);
     }
 
     if (writing_replay) {

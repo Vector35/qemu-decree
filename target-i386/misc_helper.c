@@ -22,6 +22,11 @@
 #include "exec/helper-proto.h"
 #include "exec/cpu_ldst.h"
 
+#if defined(CONFIG_DECREE_USER)
+#include "qemu.h"
+#include "asmx86/asmx86.h"
+#endif
+
 void helper_outb(uint32_t port, uint32_t data)
 {
     cpu_outb(port, data & 0xff);
@@ -612,3 +617,37 @@ void helper_debug(CPUX86State *env)
     cs->exception_index = EXCP_DEBUG;
     cpu_loop_exit(cs);
 }
+
+#if defined(CONFIG_DECREE_USER)
+target_ulong insn_eip;
+Instruction cur_insn;
+
+void helper_prepare_instrumentation(CPUX86State *env, uint64_t code1, uint64_t code2)
+{
+    union {
+        struct {
+            uint64_t a, b;
+        };
+        uint8_t bytes[16];
+    } code;
+
+    code.a = code1;
+    code.b = code2;
+
+    insn_eip = env->eip;
+    Disassemble32(code.bytes, insn_eip, 15, &cur_insn);
+}
+
+void helper_instrument_before(CPUX86State *env, void *data)
+{
+    InsnInstrumentation *instrument = (InsnInstrumentation*)data;
+    if (instrument->before)
+        instrument->before(env, instrument->data, insn_eip, &cur_insn);
+}
+
+void helper_instrument_after(CPUX86State *env, void *data)
+{
+    InsnInstrumentation *instrument = (InsnInstrumentation*)data;
+    instrument->after(env, instrument->data, insn_eip, &cur_insn);
+}
+#endif

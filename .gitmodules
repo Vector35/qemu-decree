@@ -31,3 +31,6 @@
 [submodule "roms/u-boot"]
 	path = roms/u-boot
 	url = git://git.qemu-project.org/u-boot.git
+[submodule "target-i386/asmx86"]
+	path = target-i386/asmx86
+	url = git@github.com:Vector35/asmx86.git

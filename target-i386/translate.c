@@ -34,6 +34,11 @@
 
 #include "trace-tcg.h"
 
+#if defined(CONFIG_DECREE_USER)
+#include "qemu.h"
+#include "asmx86/asmx86.h"
+#endif
+
 
 #define PREFIX_REPZ   0x01
 #define PREFIX_REPNZ  0x02
@@ -126,12 +131,20 @@ typedef struct DisasContext {
     int cpuid_ext2_features;
     int cpuid_ext3_features;
     int cpuid_7_0_ebx_features;
+#if defined(CONFIG_DECREE_USER)
+    uint64_t insn_contents[2];
+    int instrumentation_prepared;
+#endif
 } DisasContext;
 
 static void gen_eob(DisasContext *s);
 static void gen_jmp(DisasContext *s, target_ulong eip);
 static void gen_jmp_tb(DisasContext *s, target_ulong eip, int tb_num);
 static void gen_op(DisasContext *s1, int op, TCGMemOp ot, int d);
+#if defined(CONFIG_DECREE_USER)
+static inline void gen_insn_retired(DisasContext *s, int end_of_block, target_ulong eip);
+static inline void gen_prepare_instrumentation(DisasContext *s, target_ulong eip);
+#endif
 
 /* i386 arith/logic operations */
 enum {
@@ -391,7 +404,7 @@ static inline void gen_op_addq_A0_im(int64_t val)
     tcg_gen_addi_tl(cpu_A0, cpu_A0, val);
 }
 #endif
-    
+
 static void gen_add_A0_im(DisasContext *s, int val)
 {
 #ifdef TARGET_X86_64
@@ -1588,14 +1601,14 @@ static void gen_rot_rm_T1(DisasContext *s, TCGMemOp ot, int op1, int is_right)
     t0 = tcg_const_i32(0);
     t1 = tcg_temp_new_i32();
     tcg_gen_trunc_tl_i32(t1, cpu_T[1]);
-    tcg_gen_movi_i32(cpu_tmp2_i32, CC_OP_ADCOX); 
+    tcg_gen_movi_i32(cpu_tmp2_i32, CC_OP_ADCOX);
     tcg_gen_movi_i32(cpu_tmp3_i32, CC_OP_EFLAGS);
     tcg_gen_movcond_i32(TCG_COND_NE, cpu_cc_op, t1, t0,
                         cpu_tmp2_i32, cpu_tmp3_i32);
     tcg_temp_free_i32(t0);
     tcg_temp_free_i32(t1);
 
-    /* The CC_OP value is no longer predictable.  */ 
+    /* The CC_OP value is no longer predictable.  */
     set_cc_op(s, CC_OP_DYNAMIC);
 }
 
@@ -1688,7 +1701,7 @@ static void gen_rotc_rm_T1(DisasContext *s, TCGMemOp ot, int op1,
         gen_op_ld_v(s, ot, cpu_T[0], cpu_A0);
     else
         gen_op_mov_v_reg(ot, cpu_T[0], op1);
-    
+
     if (is_right) {
         switch (ot) {
         case MO_8:
@@ -2214,6 +2227,9 @@ static inline void gen_goto_tb(DisasContext *s, int tb_num, target_ulong eip)
     if ((pc & TARGET_PAGE_MASK) == (tb->pc & TARGET_PAGE_MASK) ||
         (pc & TARGET_PAGE_MASK) == ((s->pc - 1) & TARGET_PAGE_MASK))  {
         /* jump to same page: we can use a direct jump */
+#if defined(CONFIG_DECREE_USER)
+        gen_insn_retired(s, 0, eip);
+#endif
         tcg_gen_goto_tb(tb_num);
         gen_jmp_im(eip);
         tcg_gen_exit_tb((uintptr_t)tb + tb_num);
@@ -2284,17 +2300,17 @@ static void gen_cmovcc1(CPUX86State *env, DisasContext *s, TCGMemOp ot, int b,
 
 static inline void gen_op_movl_T0_seg(int seg_reg)
 {
-    tcg_gen_ld32u_tl(cpu_T[0], cpu_env, 
+    tcg_gen_ld32u_tl(cpu_T[0], cpu_env,
                      offsetof(CPUX86State,segs[seg_reg].selector));
 }
 
 static inline void gen_op_movl_seg_T0_vm(int seg_reg)
 {
     tcg_gen_andi_tl(cpu_T[0], cpu_T[0], 0xffff);
-    tcg_gen_st32_tl(cpu_T[0], cpu_env, 
+    tcg_gen_st32_tl(cpu_T[0], cpu_env,
                     offsetof(CPUX86State,segs[seg_reg].selector));
     tcg_gen_shli_tl(cpu_T[0], cpu_T[0], 4);
-    tcg_gen_st_tl(cpu_T[0], cpu_env, 
+    tcg_gen_st_tl(cpu_T[0], cpu_env,
                   offsetof(CPUX86State,segs[seg_reg].base));
 }
 
@@ -2551,6 +2567,9 @@ static void gen_debug(DisasContext *s, target_ulong cur_eip)
 static void gen_eob(DisasContext *s)
 {
     gen_update_cc_op(s);
+#if defined(CONFIG_DECREE_USER)
+    gen_insn_retired(s, 1, 0);
+#endif
     if (s->tb->flags & HF_INHIBIT_IRQ_MASK) {
         gen_helper_reset_inhibit_irq(cpu_env);
     }
@@ -3091,7 +3110,7 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
 #endif
             {
                 gen_ldst_modrm(env, s, modrm, MO_32, OR_TMP0, 0);
-                tcg_gen_addi_ptr(cpu_ptr0, cpu_env, 
+                tcg_gen_addi_ptr(cpu_ptr0, cpu_env,
                                  offsetof(CPUX86State,fpregs[reg].mmx));
                 tcg_gen_trunc_tl_i32(cpu_tmp2_i32, cpu_T[0]);
                 gen_helper_movl_mm_T0_mmx(cpu_ptr0, cpu_tmp2_i32);
@@ -3101,14 +3120,14 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
 #ifdef TARGET_X86_64
             if (s->dflag == MO_64) {
                 gen_ldst_modrm(env, s, modrm, MO_64, OR_TMP0, 0);
-                tcg_gen_addi_ptr(cpu_ptr0, cpu_env, 
+                tcg_gen_addi_ptr(cpu_ptr0, cpu_env,
                                  offsetof(CPUX86State,xmm_regs[reg]));
                 gen_helper_movq_mm_T0_xmm(cpu_ptr0, cpu_T[0]);
             } else
 #endif
             {
                 gen_ldst_modrm(env, s, modrm, MO_32, OR_TMP0, 0);
-                tcg_gen_addi_ptr(cpu_ptr0, cpu_env, 
+                tcg_gen_addi_ptr(cpu_ptr0, cpu_env,
                                  offsetof(CPUX86State,xmm_regs[reg]));
                 tcg_gen_trunc_tl_i32(cpu_tmp2_i32, cpu_T[0]);
                 gen_helper_movl_mm_T0_xmm(cpu_ptr0, cpu_tmp2_i32);
@@ -3265,13 +3284,13 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
         case 0x7e: /* movd ea, mm */
 #ifdef TARGET_X86_64
             if (s->dflag == MO_64) {
-                tcg_gen_ld_i64(cpu_T[0], cpu_env, 
+                tcg_gen_ld_i64(cpu_T[0], cpu_env,
                                offsetof(CPUX86State,fpregs[reg].mmx));
                 gen_ldst_modrm(env, s, modrm, MO_64, OR_TMP0, 1);
             } else
 #endif
             {
-                tcg_gen_ld32u_tl(cpu_T[0], cpu_env, 
+                tcg_gen_ld32u_tl(cpu_T[0], cpu_env,
                                  offsetof(CPUX86State,fpregs[reg].mmx.MMX_L(0)));
                 gen_ldst_modrm(env, s, modrm, MO_32, OR_TMP0, 1);
             }
@@ -3279,13 +3298,13 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
         case 0x17e: /* movd ea, xmm */
 #ifdef TARGET_X86_64
             if (s->dflag == MO_64) {
-                tcg_gen_ld_i64(cpu_T[0], cpu_env, 
+                tcg_gen_ld_i64(cpu_T[0], cpu_env,
                                offsetof(CPUX86State,xmm_regs[reg].XMM_Q(0)));
                 gen_ldst_modrm(env, s, modrm, MO_64, OR_TMP0, 1);
             } else
 #endif
             {
-                tcg_gen_ld32u_tl(cpu_T[0], cpu_env, 
+                tcg_gen_ld32u_tl(cpu_T[0], cpu_env,
                                  offsetof(CPUX86State,xmm_regs[reg].XMM_L(0)));
                 gen_ldst_modrm(env, s, modrm, MO_32, OR_TMP0, 1);
             }
@@ -3410,14 +3429,14 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
             break;
         case 0x050: /* movmskps */
             rm = (modrm & 7) | REX_B(s);
-            tcg_gen_addi_ptr(cpu_ptr0, cpu_env, 
+            tcg_gen_addi_ptr(cpu_ptr0, cpu_env,
                              offsetof(CPUX86State,xmm_regs[rm]));
             gen_helper_movmskps(cpu_tmp2_i32, cpu_env, cpu_ptr0);
             tcg_gen_extu_i32_tl(cpu_regs[reg], cpu_tmp2_i32);
             break;
         case 0x150: /* movmskpd */
             rm = (modrm & 7) | REX_B(s);
-            tcg_gen_addi_ptr(cpu_ptr0, cpu_env, 
+            tcg_gen_addi_ptr(cpu_ptr0, cpu_env,
                              offsetof(CPUX86State,xmm_regs[rm]));
             gen_helper_movmskpd(cpu_tmp2_i32, cpu_env, cpu_ptr0);
             tcg_gen_extu_i32_tl(cpu_regs[reg], cpu_tmp2_i32);
@@ -5219,7 +5238,7 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
             gen_lea_modrm(env, s, modrm);
             gen_helper_cmpxchg16b(cpu_env, cpu_A0);
         } else
-#endif        
+#endif
         {
             if (!(s->cpuid_features & CPUID_CX8))
                 goto illegal_op;
@@ -6277,7 +6296,7 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
     case 0x6d:
         ot = mo_b_d32(b, dflag);
         tcg_gen_ext16u_tl(cpu_T[0], cpu_regs[R_EDX]);
-        gen_check_io(s, ot, pc_start - s->cs_base, 
+        gen_check_io(s, ot, pc_start - s->cs_base,
                      SVM_IOIO_TYPE_MASK | svm_is_rep(prefixes) | 4);
         if (prefixes & (PREFIX_REPZ | PREFIX_REPNZ)) {
             gen_repz_ins(s, ot, pc_start - s->cs_base, s->pc - s->cs_base);
@@ -6906,6 +6925,16 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
         break;
     case 0xcd: /* int N */
         val = cpu_ldub_code(env, s->pc++);
+#if defined(CONFIG_DECREE_USER)
+        /* Interrupts will break out of the CPU loop, so if there is any instrumentation at all we need
+           to ensure we save off the instruction data.  Once the interrupt is handled, the instruction
+           information will be needed to pass back to the instrumentation filter callbacks, as the
+           interrupt handler will not know which instrumentations needed the instruction. */
+        if (unlikely(!QTAILQ_EMPTY(&instrumentation.insn_instrumentation)) && !s->instrumentation_prepared) {
+            gen_prepare_instrumentation(s, pc_start - s->cs_base);
+            s->instrumentation_prepared = 1;
+        }
+#endif
         if (s->vm86 && s->iopl != 3) {
             gen_exception(s, EXCP0D_GPF, pc_start - s->cs_base);
         } else {
@@ -7339,7 +7368,7 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
                     break;
                 case 4: /* STGI */
                     if ((!(s->flags & HF_SVME_MASK) &&
-                         !(s->cpuid_ext3_features & CPUID_EXT3_SKINIT)) || 
+                         !(s->cpuid_ext3_features & CPUID_EXT3_SKINIT)) ||
                         !s->pe)
                         goto illegal_op;
                     if (s->cpl != 0) {
@@ -7360,8 +7389,8 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
                     }
                     break;
                 case 6: /* SKINIT */
-                    if ((!(s->flags & HF_SVME_MASK) && 
-                         !(s->cpuid_ext3_features & CPUID_EXT3_SKINIT)) || 
+                    if ((!(s->flags & HF_SVME_MASK) &&
+                         !(s->cpuid_ext3_features & CPUID_EXT3_SKINIT)) ||
                         !s->pe)
                         goto illegal_op;
                     gen_helper_skinit(cpu_env);
@@ -7902,6 +7931,111 @@ void optimize_flags_init(void)
     }
 }
 
+#if defined(CONFIG_DECREE_USER)
+static inline int check_instrumentation_filter(CPUX86State *env, InsnInstrumentation *instrument,
+                                               abi_ulong pc, uint64_t *insn_contents)
+{
+    void *p;
+    abi_ulong len;
+    uint8_t bytes[16];
+    Instruction insn;
+
+    memset(bytes, 0, sizeof(bytes));
+
+    /* First try to read an instruction of maximum length */
+    if ((p = lock_user(VERIFY_READ, pc, 15, 1)) != NULL) {
+        memcpy(bytes, p, 15);
+        len = 15;
+        unlock_user(p, pc, 0);
+    } else {
+        /* Can't read maximum length, try a byte at a time */
+        for (len = 0; len < 15; len++) {
+            if (get_user_u8(bytes[len], pc + len))
+                break;
+        }
+    }
+
+    memcpy(insn_contents, bytes, 16);
+
+    /* If there isn't a filter, instrument all instructions */
+    if (!instrument->filter)
+        return 1;
+
+    /* Disassemble the instruction */
+    if (!Disassemble32(bytes, pc, len, &insn))
+        return 0;
+
+    /* Call the filter function to see if this instruction need instrumentation */
+    return instrument->filter(env, instrument->data, pc, &insn);
+}
+
+static inline void gen_prepare_instrumentation(DisasContext *s, abi_ulong pc)
+{
+    /* Ensure CPU state is up to date before calling instrumentation callback */
+    gen_update_cc_op(s);
+    gen_jmp_im(pc - s->cs_base);
+
+    gen_helper_prepare_instrumentation(cpu_env, tcg_const_i64(s->insn_contents[0]), tcg_const_i64(s->insn_contents[1]));
+}
+
+static inline void gen_instrument_before(DisasContext *s, InsnInstrumentation *instrument)
+{
+    TCGv_ptr data;
+
+    /* Must always generate the "before" instrumentation as this will save the instruction address and
+       disassembly.  If neither callback is provided, we don't need to emit either instrumentation. */
+    if ((!instrument->before) && (!instrument->after))
+        return;
+
+    /* Generate call to instrumentation */
+    data = tcg_const_ptr(instrument);
+    gen_helper_instrument_before(cpu_env, data);
+    tcg_temp_free_ptr(data);
+}
+
+static inline void gen_instrument_after(DisasContext *s, InsnInstrumentation *instrument, int end_of_block, target_ulong eip)
+{
+    TCGv_ptr data;
+
+    if (!instrument->after)
+        return;
+
+    if (!end_of_block) {
+        /* Ensure CPU state is up to date before calling instrumentation callback */
+        gen_update_cc_op(s);
+        gen_jmp_im(eip);
+    }
+
+    /* Generate call to instrumentation */
+    data = tcg_const_ptr(instrument);
+    gen_helper_instrument_after(cpu_env, data);
+    tcg_temp_free_ptr(data);
+}
+
+static inline void gen_insn_retired(DisasContext *s, int end_of_block, target_ulong eip)
+{
+    InsnInstrumentation *instrument;
+    TCGv_i64 count;
+
+    if (unlikely(!QTAILQ_EMPTY(&instrumentation.insn_instrumentation))) {
+        QTAILQ_FOREACH(instrument, &instrumentation.insn_instrumentation, entry) {
+            if (instrument->active) {
+                gen_instrument_after(s, instrument, end_of_block, eip);
+            }
+        }
+    }
+
+    if (is_replaying()) {
+        /* During replay, update instruction counter */
+        count = tcg_temp_new_i64();
+        tcg_gen_ld_i64(count, cpu_env, offsetof(CPUX86State, insn_retired));
+        tcg_gen_addi_i64(count, count, 1);
+        tcg_gen_st_i64(count, cpu_env, offsetof(CPUX86State, insn_retired));
+        tcg_temp_free_i64(count);
+    }
+}
+#endif
+
 /* generate intermediate code in gen_opc_buf and gen_opparam_buf for
    basic block 'tb'. If search_pc is TRUE, also generate PC
    information for each intermediate instruction. */
@@ -7920,6 +8054,9 @@ static inline void gen_intermediate_code_internal(X86CPU *cpu,
     target_ulong cs_base;
     int num_insns;
     int max_insns;
+#if defined(CONFIG_DECREE_USER)
+    InsnInstrumentation *instrument;
+#endif
 
     /* generate intermediate code */
     pc_start = tb->pc;
@@ -8026,11 +8163,33 @@ static inline void gen_intermediate_code_internal(X86CPU *cpu,
         if (num_insns + 1 == max_insns && (tb->cflags & CF_LAST_IO))
             gen_io_start();
 
+#if defined(CONFIG_DECREE_USER)
+        dc->instrumentation_prepared = 0;
+        if (unlikely(!QTAILQ_EMPTY(&instrumentation.insn_instrumentation))) {
+            QTAILQ_FOREACH(instrument, &instrumentation.insn_instrumentation, entry) {
+                instrument->active = check_instrumentation_filter(env, instrument, pc_ptr, dc->insn_contents);
+                if (instrument->active) {
+                    if (!dc->instrumentation_prepared) {
+                        gen_prepare_instrumentation(dc, pc_ptr);
+                        dc->instrumentation_prepared = 1;
+                    }
+                    gen_instrument_before(dc, instrument);
+                }
+            }
+        }
+#endif
+
         pc_ptr = disas_insn(env, dc, pc_ptr);
         num_insns++;
+
         /* stop translation if indicated */
         if (dc->is_jmp)
             break;
+
+#if defined(CONFIG_DECREE_USER)
+        gen_insn_retired(dc, 0, dc->pc - dc->cs_base);
+#endif
+
         /* if single step mode, we generate only one instruction and
            generate an exception */
         /* if irq were inhibited with HF_INHIBIT_IRQ_MASK, we clear
