@@ -298,6 +298,7 @@ class Runner(object):
         return ret
 
     def run(self):
+        global interactive
         self.log_packages()
 
 #        if self.verify_cb() != 0:
@@ -343,10 +344,11 @@ class Runner(object):
                 break
             self.full_passed += 1
 
-        print "# total tests passed: %d" % self.passed
-        print "# total tests failed: %d" % self.failed
-        print "# polls passed: %d" % self.full_passed
-        print "# polls failed: %d" % self.errors
+        if interactive:
+            print "# total tests passed: %d" % self.passed
+            print "# total tests failed: %d" % self.failed
+            print "# polls passed: %d" % self.full_passed
+            print "# polls failed: %d" % self.errors
 
         return result
 
@@ -420,4 +422,7 @@ def main():
     return ret
 
 if __name__ == "__main__":
+    interactive = True
     exit(main())
+else:
+    interactive = False
