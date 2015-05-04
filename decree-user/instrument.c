@@ -25,7 +25,8 @@
 #include "qemu.h"
 
 struct InstrumentationState instrumentation = {
-    .insn_instrumentation = QTAILQ_HEAD_INITIALIZER(instrumentation.insn_instrumentation)
+    .insn_instrumentation = QTAILQ_HEAD_INITIALIZER(instrumentation.insn_instrumentation),
+    .exit_callbacks = QTAILQ_HEAD_INITIALIZER(instrumentation.exit_callbacks)
 };
 
 InsnInstrumentation *add_insn_instrumentation(CPUArchState *env, InsnInstrumentationFilterFn filter,
@@ -52,4 +53,31 @@ void remove_insn_instrumentation(CPUArchState *env, InsnInstrumentation *instrum
     QTAILQ_REMOVE(&instrumentation.insn_instrumentation, instrument, entry);
     tb_flush(env);
     g_free(instrument);
+}
+
+ExitCallback *add_exit_callback(ExitCallbackFn cb, void *data)
+{
+    ExitCallback *entry;
+
+    entry = g_malloc(sizeof(*entry));
+    entry->data = data;
+    entry->callback = cb;
+
+    QTAILQ_INSERT_TAIL(&instrumentation.exit_callbacks, entry, entry);
+    return entry;
+}
+
+void remove_exit_callback(ExitCallback *cb)
+{
+    QTAILQ_REMOVE(&instrumentation.exit_callbacks, cb, entry);
+    g_free(cb);
+}
+
+void notify_exit(CPUArchState *env, int sig)
+{
+    ExitCallback *cb;
+
+    QTAILQ_FOREACH(cb, &instrumentation.exit_callbacks, entry) {
+        cb->callback(env, cb->data, sig);
+    }
 }

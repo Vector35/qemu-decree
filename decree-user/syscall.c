@@ -250,6 +250,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
 
     switch(num) {
     case 1: /* terminate */
+        notify_exit(env, 0);
         if (!replay_close(env, 0))
             abort();
         analysis_output_close();

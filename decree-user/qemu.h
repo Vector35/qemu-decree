@@ -527,6 +527,7 @@ void activate_pending_analysis(CPUArchState *env);
 /* Analysis type initializers */
 void init_analysis(void);
 
+void init_perf_analysis(void);
 void init_call_trace_analysis(void);
 void init_branch_trace_analysis(void);
 void init_insn_trace_analysis(void);
@@ -535,6 +536,7 @@ void init_insn_trace_analysis(void);
 struct Instruction;
 typedef int (*InsnInstrumentationFilterFn)(CPUArchState *env, void *data, abi_ulong pc, struct Instruction *insn);
 typedef void (*InsnInstrumentationFn)(CPUArchState *env, void* data, abi_ulong pc, struct Instruction *insn);
+typedef void (*ExitCallbackFn)(CPUArchState *env, void* data, int sig);
 
 typedef struct InsnInstrumentation {
     void *data; /* Opaque data for use by the instrumentation implementation */
@@ -545,8 +547,15 @@ typedef struct InsnInstrumentation {
     QTAILQ_ENTRY(InsnInstrumentation) entry;
 } InsnInstrumentation;
 
+typedef struct ExitCallback {
+    void *data; /* Opaque data for use by the callback */
+    ExitCallbackFn callback;
+    QTAILQ_ENTRY(ExitCallback) entry;
+} ExitCallback;
+
 struct InstrumentationState {
     QTAILQ_HEAD(insn_instrumentation_head, InsnInstrumentation) insn_instrumentation;
+    QTAILQ_HEAD(exit_callback_head, ExitCallback) exit_callbacks;
 };
 
 extern struct InstrumentationState instrumentation;
@@ -557,6 +566,10 @@ InsnInstrumentation *add_insn_instrumentation(CPUArchState *env, InsnInstrumenta
                                               InsnInstrumentationFn before, InsnInstrumentationFn after,
                                               void *data);
 void remove_insn_instrumentation(CPUArchState *env, InsnInstrumentation *instrument);
+
+ExitCallback *add_exit_callback(ExitCallbackFn cb, void *data);
+void remove_exit_callback(ExitCallback *cb);
+void notify_exit(CPUArchState *env, int sig);
 
 #include <pthread.h>
 
