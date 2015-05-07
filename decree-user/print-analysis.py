@@ -62,9 +62,14 @@ event_handler["instruction_disasm"] = handle_instruction_disasm
 event_handler["instruction_regs_disasm"] = handle_instruction_regs_disasm
 event_handler["perf"] = handle_perf
 
-if len(sys.argv) < 2:
-	print "Usage: %s <filename>" % sys.argv[0]
-	exit(1)
+def print_analysis(files):
+	global event_handler
+	analysis.read_analysis(files, event_handler)
 
-analysis.read_analysis(sys.argv[1:], event_handler)
+if __name__ == "__main__":
+	if len(sys.argv) < 2:
+		print "Usage: %s <filename>" % sys.argv[0]
+		exit(1)
+
+	analysis.read_analysis(sys.argv[1:], event_handler)
 
