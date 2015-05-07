@@ -350,7 +350,9 @@ class Runner(object):
             print "# polls passed: %d" % self.full_passed
             print "# polls failed: %d" % self.errors
 
-        return result
+        if self.errors > 0:
+            return -1
+        return 0
 
 
 def main():
