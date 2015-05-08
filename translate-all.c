@@ -132,7 +132,7 @@ static TranslationBlock *tb_find_pc(uintptr_t tc_ptr);
 
 void cpu_gen_init(void)
 {
-    tcg_context_init(&tcg_ctx); 
+    tcg_context_init(&tcg_ctx);
 }
 
 /* return non zero if the very first instruction is invalid so that
@@ -1913,16 +1913,21 @@ int page_unprotect(target_ulong address, uintptr_t pc, void *puc)
             p = page_find(addr >> TARGET_PAGE_BITS);
             p->flags |= PAGE_WRITE;
             prot |= p->flags;
+        }
+        /* ensure that the page is actually marked writable before we
+           invalidate the translated code, as we may be resuming from
+           the signal handler early in some cases. */
+        mprotect((void *)g2h(host_start), qemu_host_page_size,
+                 prot & PAGE_BITS);
 
-            /* and since the content will be modified, we must invalidate
-               the corresponding translated code. */
+        /* and since the content will be modified, we must invalidate
+           the corresponding translated code. */
+        for (addr = host_start ; addr < host_end ; addr += TARGET_PAGE_SIZE) {
             tb_invalidate_phys_page(addr, pc, puc, true);
 #ifdef DEBUG_TB_CHECK
             tb_invalidate_check(addr);
 #endif
         }
-        mprotect((void *)g2h(host_start), qemu_host_page_size,
-                 prot & PAGE_BITS);
 
         mmap_unlock();
         return 1;
