@@ -23,16 +23,25 @@
 
 /* broken thread support */
 
+/* Locking semantics are not required for DECREE, as it is single threaded
+   only. This avoids a hang if an xchg or other locking instruction writes
+   to memory that is currently protected for self-modifying code detection. */
+#if !defined(CONFIG_DECREE_USER)
 static spinlock_t global_cpu_lock = SPIN_LOCK_UNLOCKED;
+#endif
 
 void helper_lock(void)
 {
+#if !defined(CONFIG_DECREE_USER)
     spin_lock(&global_cpu_lock);
+#endif
 }
 
 void helper_unlock(void)
 {
+#if !defined(CONFIG_DECREE_USER)
     spin_unlock(&global_cpu_lock);
+#endif
 }
 
 void helper_cmpxchg8b(CPUX86State *env, target_ulong a0)
