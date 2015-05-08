@@ -355,9 +355,6 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
         if (arg1 == 1)
             arg1 = 0;
 
-        if (!(p = lock_user(VERIFY_WRITE, arg2, arg3, 0)))
-            goto efault;
-
         if (is_replaying()) {
             /* Replaying, read and verify replay event */
             struct replay_event evt;
@@ -384,7 +381,10 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 }
 
                 /* Grab the data from the original execution to complete the read */
+                if (!(p = lock_user(VERIFY_WRITE, arg2, ret, 0)))
+                    goto efault;
                 memcpy(p, data, ret);
+                unlock_user(p, arg2, ret);
             }
 
             free_replay_event(data);
@@ -402,6 +402,8 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 arg3 = max_recv;
             }
 
+            p = g2h(arg2);
+
             if (arg3 == 0)
                 ret = 0;
             else
@@ -414,8 +416,6 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
             if (binary_count > 1)
                 pthread_mutex_unlock(shared->read_mutex[arg1]);
         }
-
-        unlock_user(p, arg2, (ret < 0) ? 0 : ret);
 
         if (!is_error(ret)) {
             if (arg4 && put_user_sal(ret, arg4))
