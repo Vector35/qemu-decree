@@ -73,6 +73,8 @@ static int replay_playback_count = 0;
 int record_replay_flags = 0;
 
 int fd_valid[MAX_FD];
+int limit_closed_fd_ops = 0;
+int closed_fd_ops = 0;
 
 static char* analysis_output_name = NULL;
 
@@ -567,6 +569,12 @@ static void handle_arg_strace(const char *arg)
     do_strace = 1;
 }
 
+static void handle_arg_closeopt(const char *arg)
+{
+    limit_closed_fd_ops = 1;
+    record_replay_flags |= REPLAY_FLAG_LIMIT_CLOSED_FD_LOOP;
+}
+
 static void handle_arg_version(const char *arg)
 {
     printf("qemu-" TARGET_NAME " version " QEMU_VERSION QEMU_PKGVERSION
@@ -621,6 +629,8 @@ static const struct qemu_argument arg_table[] = {
      "",           "Seed for pseudo-random number generator"},
     {"maxrecv",    "QEMU_MAX_RECV",    true,  handle_arg_maxrecv,
      "",           "Maximum bytes to receive in one call (for debug)"},
+    {"closeopt",   "QEMU_CLOSE_OPT",   false, handle_arg_closeopt,
+     "",           "Limit reads/writes to closed handles"},
     {"version",    "QEMU_VERSION",     false, handle_arg_version,
      "",           "display version information and exit"},
     {NULL, NULL, false, NULL, NULL, NULL}
@@ -1075,6 +1085,9 @@ int main(int argc, char **argv)
             fprintf(stderr, "Replay file invalid for binary '%s'\n", argv[optind + binary_index]);
             _exit(1);
         }
+
+        /* Set options from header flags */
+        limit_closed_fd_ops = ((get_replay_flags() & REPLAY_FLAG_LIMIT_CLOSED_FD_LOOP) != 0);
     }
 
     if (analysis_output_name) {

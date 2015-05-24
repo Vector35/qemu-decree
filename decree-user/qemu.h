@@ -128,6 +128,10 @@ extern long max_recv;
 #define MAX_FD (5 + MAX_BINARIES * 2)
 
 extern int fd_valid[MAX_FD];
+extern int limit_closed_fd_ops;
+extern int closed_fd_ops;
+
+#define MAX_CLOSED_FD_OPS 16384
 
 struct shared_data {
     /* The starting clock for all binaries should be the same */
@@ -429,9 +433,10 @@ static inline void *lock_user_string(abi_ulong guest_addr)
 
 /* Record/replay functions */
 #define REPLAY_MAGIC 0xbd46f4dd
-#define REPLAY_VERSION 4
+#define REPLAY_VERSION 5
 
 #define REPLAY_FLAG_COMPACT 1 /* When set, doesn't include validation information */
+#define REPLAY_FLAG_LIMIT_CLOSED_FD_LOOP 2 /* When set, time out after a large number of reads/writes to closed fds */
 
 struct replay_header {
     uint32_t magic; /* Must equal REPLAY_MAGIC */
@@ -448,6 +453,7 @@ struct replay_header {
 #define REPLAY_EVENT_RECEIVE 3
 #define REPLAY_EVENT_FDWAIT 4
 #define REPLAY_EVENT_RANDOM 7
+#define REPLAY_EVENT_RECEIVE_EFAULT 30
 
 struct replay_event {
     uint16_t event_id; /* One of REPLAY_EVENT_* */
@@ -475,6 +481,7 @@ void replay_write_validation_event(uint16_t id, uint16_t fd, uint32_t result, co
 
 int is_replaying(void);
 int replay_has_validation(void);
+uint32_t get_replay_flags(void);
 void* read_replay_event(struct replay_event* evt);
 void free_replay_event(void* data);
 

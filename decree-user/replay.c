@@ -368,6 +368,11 @@ int replay_has_validation(void)
     return (replay_flags & REPLAY_FLAG_COMPACT) == 0;
 }
 
+uint32_t get_replay_flags(void)
+{
+	return replay_flags;
+}
+
 void* read_replay_event(struct replay_event* evt)
 {
     void* data;
