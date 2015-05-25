@@ -253,9 +253,8 @@ class Runner(object):
             elif sig == signal.SIGALRM:
                 self.log.error('process timed out (signal %d: %s)', sig,
                                self.signal_name(sig))
-                if self.failure_ok:
-                    return 0
-                return -1
+                if not self.failure_ok:
+                    return -1
             else:
                 self.log.error('process errored (signal %d: %s)', sig,
                                self.signal_name(sig))

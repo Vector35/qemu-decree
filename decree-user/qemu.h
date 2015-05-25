@@ -127,6 +127,8 @@ extern long max_recv;
 #define MAX_BINARIES 64
 #define MAX_FD (5 + MAX_BINARIES * 2)
 
+extern int fd_valid[MAX_FD];
+
 struct shared_data {
     /* The starting clock for all binaries should be the same */
     uint32_t base_wall_time;

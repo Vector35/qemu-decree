@@ -72,6 +72,8 @@ static char* replay_playback_name[MAX_BINARIES];
 static int replay_playback_count = 0;
 int record_replay_flags = 0;
 
+int fd_valid[MAX_FD];
+
 static char* analysis_output_name = NULL;
 
 struct shared_data *shared = NULL;
@@ -1100,6 +1102,11 @@ int main(int argc, char **argv)
 
     /* Now that the optional replay file is ready and we are about to execute, set the random seed */
     srand(random_seed);
+
+    /* Initialize file descriptor validitity */
+    memset(fd_valid, 0, sizeof(fd_valid));
+    for (i = 0; i < (3 + binary_count * 2); i++)
+        fd_valid[i] = 1;
 
     /* If a timeout has been set, activate it now */
     if (timeout > 0) {

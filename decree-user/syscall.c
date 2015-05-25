@@ -238,7 +238,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                     abi_long arg2, abi_long arg3, abi_long arg4,
                     abi_long arg5, abi_long arg6)
 {
-    abi_long ret;
+    abi_long ret, len;
     abi_ulong i;
     void *p;
 
@@ -261,6 +261,12 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
     case 2: /* transmit */
         if (!is_valid_guest_fd(arg1)) {
             ret = -TARGET_EBADF;
+            break;
+        }
+
+        /* Check for previously valid connections that have been closed */
+        if (!fd_valid[arg1]) {
+            ret = -TARGET_EINVAL;
             break;
         }
 
@@ -339,11 +345,25 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
          * on a socket. */
         if ((arg1 == 1) && (ret == -TARGET_EPIPE))
             ret = -TARGET_EINVAL;
+
+        /* On disconnect, mark descriptor as invalid so that replay events do not need to be
+           generated for future accesses. */
+        if (ret == -TARGET_EINVAL)
+            fd_valid[arg1] = 0;
         break;
 
     case 3: /* receive */
         if (!is_valid_guest_fd(arg1)) {
             ret = -TARGET_EBADF;
+            break;
+        }
+
+        /* Check for previously valid connections that have been closed */
+        if (!fd_valid[arg1]) {
+            /* On receive, closed connections return zero length */
+            if (arg4 && put_user_sal(0, arg4))
+                goto efault;
+            ret = 0;
             break;
         }
 
@@ -417,6 +437,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 pthread_mutex_unlock(shared->read_mutex[arg1]);
         }
 
+        len = ret;
         if (!is_error(ret)) {
             if (arg4 && put_user_sal(ret, arg4))
                 goto efault;
@@ -428,6 +449,11 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
          * on a socket. */
         if ((arg1 == 0) && (ret == -TARGET_EPIPE))
             ret = -TARGET_EINVAL;
+
+        /* On disconnect, mark descriptor as invalid so that replay events do not need to be
+           generated for future accesses. */
+        if ((ret == -TARGET_EINVAL) || ((ret == 0) && (len == 0) && (arg3 > 0)))
+            fd_valid[arg1] = 0;
         break;
 
     case 4: /* fdwait */
