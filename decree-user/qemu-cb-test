@@ -121,7 +121,7 @@ class Runner(object):
     pov_signals = [signal.SIGSEGV, signal.SIGILL, signal.SIGBUS]
 
     def __init__(self, cb_list, xml_list, wrapper, directory,
-                 should_core, failure_ok, should_debug, timeout, record, compact, log_fh):
+                 should_core, failure_ok, should_debug, timeout, record, compact, opt_failure, log_fh):
         self.log = logging.getLogger('cb-test')
         self.cb_list = cb_list
         self.xml_list = xml_list
@@ -133,6 +133,7 @@ class Runner(object):
         self.timeout = timeout
         self.record = record
         self.compact = compact
+        self.optimize_failures = opt_failure
         self.processes = []
         self.log_fh = log_fh
         self.passed = 0
@@ -224,6 +225,8 @@ class Runner(object):
             run_cmd += ['-record', self.record + "-" + xml_name]
         if self.compact:
             run_cmd += ['-compact']
+        if self.optimize_failures:
+	        run_cmd += ['-closeopt']
 
         for cb in self.cb_list:
             if self.directory is None:
@@ -379,6 +382,8 @@ def main():
     parser.add_argument('--record', required=False, type=str, help='Replay recording filename prefix')
     parser.add_argument('--compact', required=False, action='store_true',
                         default=False, help='Record replays without validation information')
+    parser.add_argument('--optimize_failure', required=False, action='store_true',
+                        default=False, help='Detect failure conditions early')
 
     exgroup = parser.add_argument_group(title='XML files')
     group = exgroup.add_mutually_exclusive_group(required=True)
@@ -413,7 +418,7 @@ def main():
     ret = -1
     runner = Runner(args.cb, xml_files, args.wrapper,
                     args.directory, args.should_core, args.failure_ok,
-                    args.debug, args.timeout, args.record, args.compact, log_fh)
+                    args.debug, args.timeout, args.record, args.compact, args.optimize_failure, log_fh)
     try:
         ret = runner.run()
     except KeyboardInterrupt:
