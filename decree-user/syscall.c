@@ -298,8 +298,12 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
                 abort();
             }
+            if (evt.insn_retired != env->insn_retired) {
+                fprintf(stderr, "Replay event at instruction %" PRId64 ", but recorded at instruction %" PRId64 "\n",
+                        env->insn_retired, evt.insn_retired);
+                abort();
+            }
 
-            analysis_sync_wall_time(env, evt.start_wall_time, evt.end_wall_time);
             ret = evt.result;
 
             if ((ret > 0) && (ret > arg3)) {
@@ -333,9 +337,9 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
             ret = get_errno(write(arg1, p, arg3));
 
             if (ret <= 0)
-                replay_write_event(REPLAY_EVENT_TRANSMIT, arg1, ret);
+                replay_write_event(env, REPLAY_EVENT_TRANSMIT, arg1, ret);
             else
-                replay_write_event_with_validation_data(REPLAY_EVENT_TRANSMIT, arg1, ret, p, ret);
+                replay_write_event_with_validation_data(env, REPLAY_EVENT_TRANSMIT, arg1, ret, p, ret);
             if (binary_count > 1)
                 pthread_mutex_unlock(shared->write_mutex[arg1]);
         }
@@ -400,8 +404,12 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
                 abort();
             }
+            if (evt.insn_retired != env->insn_retired) {
+                fprintf(stderr, "Replay event at instruction %" PRId64 ", but recorded at instruction %" PRId64 "\n",
+                        env->insn_retired, evt.insn_retired);
+                abort();
+            }
 
-            analysis_sync_wall_time(env, evt.start_wall_time, evt.end_wall_time);
             ret = evt.result;
 
             if ((ret > 0) && (ret > arg3)) {
@@ -476,18 +484,18 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
 		               contents to ensure a correct replay. */
 		            if (!(p = lock_user(VERIFY_WRITE, arg2, partial_len, 0)))
 			            goto efault;
-		            replay_write_event_with_required_data(REPLAY_EVENT_RECEIVE_EFAULT, arg1, partial_len, p, partial_len);
+		            replay_write_event_with_required_data(env, REPLAY_EVENT_RECEIVE_EFAULT, arg1, partial_len, p, partial_len);
 		            unlock_user(p, arg2, 0);
 	            } else {
 		            /* No writable bytes at buffer location, record failure */
-		            replay_write_event(REPLAY_EVENT_RECEIVE, arg1, ret);
+		            replay_write_event(env, REPLAY_EVENT_RECEIVE, arg1, ret);
 	            }
             } else if (ret <= 0) {
 	            /* Failure that is not a bad address, record failure */
-                replay_write_event(REPLAY_EVENT_RECEIVE, arg1, ret);
+                replay_write_event(env, REPLAY_EVENT_RECEIVE, arg1, ret);
             } else {
 	            /* Valid read, record length and contents */
-                replay_write_event_with_required_data(REPLAY_EVENT_RECEIVE, arg1, ret, p, ret);
+                replay_write_event_with_required_data(env, REPLAY_EVENT_RECEIVE, arg1, ret, p, ret);
             }
 
             if (binary_count > 1)
@@ -524,8 +532,12 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
                 abort();
             }
+            if (evt.insn_retired != env->insn_retired) {
+                fprintf(stderr, "Replay event at instruction %" PRId64 ", but recorded at instruction %" PRId64 "\n",
+                        env->insn_retired, evt.insn_retired);
+                abort();
+            }
 
-            analysis_sync_wall_time(env, evt.start_wall_time, evt.end_wall_time);
             ret = evt.result;
 
             if (ret >= 0) {
@@ -571,7 +583,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
             ret = do_select(arg1, arg2, arg3, arg4);
 
             if (ret < 0) {
-                replay_write_event(REPLAY_EVENT_FDWAIT, arg1, ret);
+                replay_write_event(env, REPLAY_EVENT_FDWAIT, arg1, ret);
             } else {
                 /* Need to record read/write status from the guest, as this isn't deterministic. */
                 int nw, n = arg1;
@@ -593,7 +605,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                     }
                 }
 
-                replay_write_event_with_required_data(REPLAY_EVENT_FDWAIT, arg1, ret, data, sizeof(uint32_t) * nw * 2);
+                replay_write_event_with_required_data(env, REPLAY_EVENT_FDWAIT, arg1, ret, data, sizeof(uint32_t) * nw * 2);
             }
         }
 
@@ -623,10 +635,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
     case 7: /* random */
         if (!(p = lock_user(VERIFY_WRITE, arg1, arg2, 0)))
             goto efault;
-        for (i = 0; i < (abi_ulong)arg2; i++) {
-            /* FIXME: Use same random algorithm as DARPA kernel */
-            ((char*)p)[i] = (char)(rand() & 0xff);
-        }
+        get_random_bytes((uint8_t*)p, arg2);
 
         if (is_replaying()) {
             /* Replaying, read and verify replay event */
@@ -639,8 +648,11 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                     fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
                     abort();
                 }
-
-                analysis_sync_wall_time(env, evt.start_wall_time, evt.end_wall_time);
+                if (evt.insn_retired != env->insn_retired) {
+                    fprintf(stderr, "Replay event at instruction %" PRId64 ", but recorded at instruction %" PRId64 "\n",
+                            env->insn_retired, evt.insn_retired);
+                    abort();
+                }
 
                 if (evt.result != arg2) {
                     fprintf(stderr, "Replay length mismatch at index %d\n", evt.global_ordering);
@@ -663,7 +675,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
         } else {
             /* Normal execution */
             replay_nonblocking_event();
-            replay_write_validation_event(REPLAY_EVENT_RANDOM, 0, arg2, p, arg2);
+            replay_write_validation_event(env, REPLAY_EVENT_RANDOM, 0, arg2, p, arg2);
         }
 
         unlock_user(p, arg1, arg2);

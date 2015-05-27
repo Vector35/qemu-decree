@@ -8025,8 +8025,8 @@ static inline void gen_insn_retired(DisasContext *s, int end_of_block, target_ul
         }
     }
 
-    if (is_replaying()) {
-        /* During replay, update instruction counter */
+    if (is_record_or_replay()) {
+        /* During record/replay, update instruction counter */
         count = tcg_temp_new_i64();
         tcg_gen_ld_i64(count, cpu_env, offsetof(CPUX86State, insn_retired));
         tcg_gen_addi_i64(count, count, 1);

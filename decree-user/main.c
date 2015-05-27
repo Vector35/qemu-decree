@@ -35,6 +35,7 @@
 #include "qemu/timer.h"
 #include "qemu/envlist.h"
 #include "elf.h"
+#include "qemu/aes.h"
 
 int singlestep;
 int gdbstub_port;
@@ -63,7 +64,11 @@ unsigned long reserved_va;
 int binary_count;
 int binary_index;
 int timeout = 0;
-int random_seed;
+uint8_t random_seed[48];
+static int valid_random_bytes = 0;
+static uint8_t random_buffer[16];
+static uint8_t *random_buffer_ptr = NULL;
+AES_KEY random_key;
 
 long max_recv = -1;
 
@@ -215,7 +220,7 @@ static void retire_syscall(CPUX86State *env)
         }
     }
 
-    if (is_replaying())
+    if (is_record_or_replay())
         env->insn_retired++;
 }
 
@@ -477,13 +482,33 @@ static void handle_arg_analysis_type(const char* arg)
 
 static void handle_arg_randseed(const char *arg)
 {
-    unsigned long long seed;
+    size_t i;
+    int high = 1;
 
-    if (parse_uint_full(arg, &seed, 0) != 0 || seed > UINT_MAX) {
-        fprintf(stderr, "Invalid seed number: %s\n", arg);
-        exit(1);
+    memset(random_seed, 0, sizeof(random_seed));
+
+    for (i = 0; i < 48; ) {
+        uint8_t val;
+        if ((arg[i] >= '0')  && (arg[i] <= '9')) {
+            val = arg[i] - '0';
+        } else if ((arg[i] >= 'a') && (arg[i] <= 'f')) {
+            val = arg[i] - 'a' + 10;
+        } else if ((arg[i] >= 'A') && (arg[i] <= 'F')) {
+            val = arg[i] - 'A' + 10;
+        } else {
+            fprintf(stderr, "Invalid seed number: %s\n", arg);
+            exit(1);
+        }
+
+        if (high) {
+            random_seed[i] = val << 4;
+            high = 0;
+        } else {
+            random_seed[i] |= val;
+            high = 1;
+            i++;
+        }
     }
-    random_seed = seed;
 }
 
 static void handle_arg_maxrecv(const char* arg)
@@ -785,6 +810,51 @@ int is_valid_guest_fd(int fd)
     return 0;
 }
 
+static void fill_random_buffer(void)
+{
+    uint8_t i[16];
+    uint8_t iXorV[16];
+    uint8_t v[16];
+    size_t n;
+
+    AES_encrypt(&random_seed[32], i, &random_key);
+
+    for (n = 0; n < 16; n++)
+        iXorV[n] = i[n] ^ random_seed[n];
+    AES_encrypt(iXorV, random_buffer, &random_key);
+
+    for (n = 0; n < 16; n++)
+        v[n] = random_buffer[n] ^ i[n];
+    AES_encrypt(v, random_seed, &random_key);
+
+    for (n = 47; n >= 32; n--) {
+        random_seed[n]++;
+        if (random_seed[n] != 0)
+            break;
+    }
+
+    random_buffer_ptr = random_buffer;
+    valid_random_bytes = 16;
+}
+
+void get_random_bytes(uint8_t* out, size_t len)
+{
+    while (len > 0) {
+        if (valid_random_bytes == 0)
+            fill_random_buffer();
+
+        size_t block = len;
+        if (block > valid_random_bytes)
+            block = valid_random_bytes;
+
+        memcpy(out, random_buffer_ptr, block);
+        valid_random_bytes -= block;
+        random_buffer_ptr += block;
+        out += block;
+        len -= block;
+    }
+}
+
 int main(int argc, char **argv)
 {
     struct target_pt_regs regs1, *regs = &regs1;
@@ -814,7 +884,9 @@ int main(int argc, char **argv)
 
     init_analysis();
 
-    random_seed = (int)time(NULL);
+    srand(time(NULL));
+    for (i = 0; i < 48; i++)
+        random_seed[i] = (uint8_t)rand();
 
     optind = parse_args(argc, argv);
 
@@ -1113,8 +1185,8 @@ int main(int argc, char **argv)
         activate_pending_analysis(env);
     }
 
-    /* Now that the optional replay file is ready and we are about to execute, set the random seed */
-    srand(random_seed);
+    /* Initialize random generator */
+    AES_set_encrypt_key(&random_seed[16], 128, &random_key);
 
     /* Initialize file descriptor validitity */
     memset(fd_valid, 0, sizeof(fd_valid));
@@ -1207,12 +1279,10 @@ int main(int argc, char **argv)
             abort();
         }
 
-        analysis_sync_wall_time(env, evt.start_wall_time, evt.end_wall_time);
-
         free_replay_event(data);
     } else {
         /* Generate a startup event so that initial instruction timing is more accurate */
-        replay_write_event(REPLAY_EVENT_START, 0, 0);
+        replay_write_event(env, REPLAY_EVENT_START, 0, 0);
     }
 
     if (gdbstub_port) {

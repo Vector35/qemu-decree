@@ -33,11 +33,17 @@ static int reading_replay = 0;
 static int reading_compressed = 0;
 static int writing_replay = 0;
 static int multi_binary_replay = 0;
+static int replay_active = 0;
 static uint32_t replay_flags = 0;
 static uint32_t start_wall_time = 0;
 
 static uint8_t replay_buffer[REPLAY_BUFFER_SIZE];
 static size_t consumed_replay_buffer = 0;
+
+static struct replay_event next_replay_event_hdr;
+static int next_replay_event_valid = 0;
+static uint32_t last_replay_event_wall_time = 0;
+static uint64_t last_replay_event_insn = 0;
 
 static int next_global_ordering_index(void)
 {
@@ -102,11 +108,11 @@ static void replay_buffered_write(const void* data, size_t len)
     consumed_replay_buffer += len;
 }
 
-int replay_create(const char* filename, uint32_t flags, uint32_t seed)
+int replay_create(const char* filename, uint32_t flags, const uint8_t *seed)
 {
     struct replay_header hdr;
 
-    replay_fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    replay_fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0644);
     if (replay_fd < 0) {
         fprintf(stderr, "Replay file '%s' could not be written\n", filename);
         return 0;
@@ -114,12 +120,16 @@ int replay_create(const char* filename, uint32_t flags, uint32_t seed)
 
     replay_flags = flags;
     writing_replay = 1;
+    replay_active = 1;
 
     hdr.magic = REPLAY_MAGIC;
     hdr.version = REPLAY_VERSION;
-    hdr.binary_count = binary_count;
-    hdr.seed = seed;
+    hdr.binary_count = (uint16_t)binary_count;
+    hdr.binary_id = (uint16_t)binary_index;
+    memcpy(hdr.seed, seed, sizeof(hdr.seed));
     hdr.flags = flags;
+    hdr.insn_retired = 0; /* Filled in at termination */
+    hdr.mem_pages = 0; /* Filled in at termination */
     replay_buffered_write(&hdr, sizeof(hdr));
     return 1;
 }
@@ -194,14 +204,20 @@ int replay_open(const char* filename)
     }
 
     reading_replay = 1;
+    replay_active = 1;
     replay_flags = hdr.flags;
     binary_count = hdr.binary_count;
-    random_seed = hdr.seed;
+    memcpy(random_seed, hdr.seed, sizeof(random_seed));
+
+    last_replay_event_insn = 0;
+    last_replay_event_wall_time = 0;
+    next_replay_event_valid = replay_read(&next_replay_event_hdr, sizeof(next_replay_event_hdr));
     return 1;
 }
 
 int replay_close(CPUArchState *env, int signal)
 {
+    struct replay_header hdr;
     int result = 1;
 
     if ((!reading_replay) && (!writing_replay))
@@ -210,42 +226,60 @@ int replay_close(CPUArchState *env, int signal)
     if (reading_replay) {
         /* When playing back, ensure that the termination condition is expected. The termination event
            does not have a global ordering index, so do not synchronize here. */
-        struct replay_event evt;
-
         if ((signal == TARGET_SIGINT) || (signal == TARGET_SIGABRT)) {
             /* Do not validate termination condition when user interrupts the replay or the replay aborts */
             result = 1;
-        } else if (!replay_read(&evt, sizeof(struct replay_event))) {
+        } else if (!next_replay_event_valid) {
             fprintf(stderr, "Replay file truncated\n");
             result = 0;
-        } else if (evt.event_id != REPLAY_EVENT_TERMINATE) {
+        } else if (next_replay_event_hdr.event_id != REPLAY_EVENT_TERMINATE) {
             fprintf(stderr, "Process terminated early\n");
             result = 0;
-        } else if ((signal == 0) && (evt.result != 0)) {
-            fprintf(stderr, "Expected signal %d, but process terminated normally\n", evt.result);
+        } else if (next_replay_event_hdr.insn_retired != env->insn_retired) {
+            fprintf(stderr, "Replay terminated at instruction %" PRId64 ", but recorded at instruction %" PRId64 "\n",
+                    env->insn_retired, next_replay_event_hdr.insn_retired);
+            abort();
+        } else if ((signal == 0) && (next_replay_event_hdr.result != 0)) {
+            fprintf(stderr, "Expected signal %d, but process terminated normally\n", next_replay_event_hdr.result);
             result = 0;
-        } else if ((signal != 0) && (evt.result == 0)) {
+        } else if ((signal != 0) && (next_replay_event_hdr.result == 0)) {
             fprintf(stderr, "Unexpected signal %d during replay\n", signal);
             result = 0;
-        } else if (signal != evt.result) {
-            fprintf(stderr, "Expected signal %d, got signal %d\n", evt.result, signal);
+        } else if (signal != next_replay_event_hdr.result) {
+            fprintf(stderr, "Expected signal %d, got signal %d\n", next_replay_event_hdr.result, signal);
             result = 0;
         }
-
-        if (result)
-            analysis_sync_wall_time(env, evt.start_wall_time, evt.end_wall_time);
     }
 
     if (writing_replay) {
         /* When closing a record session, add an end event to track the time of exit and the signal if any. */
         start_wall_time = 0;
-        replay_write_event(REPLAY_EVENT_TERMINATE, 0, signal);
+        replay_write_event(env, REPLAY_EVENT_TERMINATE, 0, signal);
 
         /* Flush write buffer before closing */
         if (consumed_replay_buffer > 0) {
             replay_write(replay_buffer, consumed_replay_buffer);
             consumed_replay_buffer = 0;
         }
+
+        /* Update header to include instruction counter */
+        if (lseek(replay_fd, 0, SEEK_SET) < 0) {
+            fprintf(stderr, "Failed to seek when updating replay header\n");
+            abort();
+        }
+        if (!replay_read(&hdr, sizeof(hdr))) {
+            fprintf(stderr, "Failed to read when updating replay header\n");
+            abort();
+        }
+
+        hdr.insn_retired = env->insn_retired;
+
+        if (lseek(replay_fd, 0, SEEK_SET) < 0) {
+            fprintf(stderr, "Failed to seek when updating replay header\n");
+            abort();
+        }
+
+        replay_write(&hdr, sizeof(hdr));
     }
 
     if (reading_replay && reading_compressed) {
@@ -257,6 +291,7 @@ int replay_close(CPUArchState *env, int signal)
     }
     reading_replay = 0;
     writing_replay = 0;
+    replay_active = 0;
     return result;
 }
 
@@ -271,7 +306,7 @@ void replay_nonblocking_event(void)
     start_wall_time = 0;
 }
 
-void replay_write_event(uint16_t id, uint16_t fd, uint32_t result)
+void replay_write_event(CPUArchState *env, uint16_t id, uint16_t fd, uint32_t result)
 {
     struct replay_event evt;
 
@@ -294,11 +329,12 @@ void replay_write_event(uint16_t id, uint16_t fd, uint32_t result)
     evt.data_length = 0;
     evt.start_wall_time = start_wall_time;
     evt.end_wall_time = get_current_wall_time();
+    evt.insn_retired = env->insn_retired;
 
     replay_buffered_write(&evt, sizeof(evt));
 }
 
-void replay_write_event_with_required_data(uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len)
+void replay_write_event_with_required_data(CPUArchState *env, uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len)
 {
     struct replay_event evt;
 
@@ -312,12 +348,13 @@ void replay_write_event_with_required_data(uint16_t id, uint16_t fd, uint32_t re
     evt.data_length = len;
     evt.start_wall_time = start_wall_time;
     evt.end_wall_time = get_current_wall_time();
+    evt.insn_retired = env->insn_retired;
 
     replay_buffered_write(&evt, sizeof(evt));
     replay_buffered_write(data, len);
 }
 
-void replay_write_event_with_validation_data(uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len)
+void replay_write_event_with_validation_data(CPUArchState *env, uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len)
 {
     struct replay_event evt;
 
@@ -331,13 +368,14 @@ void replay_write_event_with_validation_data(uint16_t id, uint16_t fd, uint32_t 
     evt.data_length = (replay_flags & REPLAY_FLAG_COMPACT) ? 0 : len;
     evt.start_wall_time = start_wall_time;
     evt.end_wall_time = get_current_wall_time();
+    evt.insn_retired = env->insn_retired;
 
     replay_buffered_write(&evt, sizeof(evt));
     if (!(replay_flags & REPLAY_FLAG_COMPACT))
         replay_buffered_write(data, len);
 }
 
-void replay_write_validation_event(uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len)
+void replay_write_validation_event(CPUArchState *env, uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len)
 {
     struct replay_event evt;
 
@@ -353,6 +391,7 @@ void replay_write_validation_event(uint16_t id, uint16_t fd, uint32_t result, co
     evt.data_length = len;
     evt.start_wall_time = start_wall_time;
     evt.end_wall_time = get_current_wall_time();
+    evt.insn_retired = env->insn_retired;
 
     replay_buffered_write(&evt, sizeof(evt));
     replay_buffered_write(data, len);
@@ -361,6 +400,16 @@ void replay_write_validation_event(uint16_t id, uint16_t fd, uint32_t result, co
 int is_replaying(void)
 {
     return reading_replay;
+}
+
+int is_recording(void)
+{
+    return writing_replay;
+}
+
+int is_record_or_replay(void)
+{
+    return replay_active;
 }
 
 int replay_has_validation(void)
@@ -377,10 +426,12 @@ void* read_replay_event(struct replay_event* evt)
 {
     void* data;
 
-    if (!replay_read(evt, sizeof(struct replay_event))) {
+    if (!next_replay_event_valid) {
         fprintf(stderr, "Replay file truncated\n");
         abort();
     }
+
+    memcpy(evt, &next_replay_event_hdr, sizeof(struct replay_event));
 
     if (evt->data_length > (1 << 30)) {
         fprintf(stderr, "Replay event data length too large\n");
@@ -407,6 +458,9 @@ void* read_replay_event(struct replay_event* evt)
         }
     }
 
+    last_replay_event_insn = evt->insn_retired;
+    last_replay_event_wall_time = evt->end_wall_time;
+    next_replay_event_valid = replay_read(&next_replay_event_hdr, sizeof(next_replay_event_hdr));
     return data;
 }
 
@@ -420,4 +474,20 @@ void free_replay_event(void* data)
     }
 
     free(data);
+}
+
+
+double get_insn_wall_time(CPUArchState *env)
+{
+    uint32_t next_wall_time;
+    if (next_replay_event_hdr.start_wall_time != 0)
+        next_wall_time = next_replay_event_hdr.start_wall_time;
+    else
+        next_wall_time = next_replay_event_hdr.end_wall_time;
+
+    uint64_t total_insn = next_replay_event_hdr.insn_retired - last_replay_event_insn;
+    double prev_time = (double)last_replay_event_wall_time / 1000000.0;
+    double total_time = ((double)(next_wall_time - last_replay_event_wall_time)) / 1000000.0;
+    double per_insn_time = (total_insn > 0) ? (total_time / (double)total_insn) : 0;
+    return prev_time + (per_insn_time * (double)(env->insn_retired - last_replay_event_insn));
 }

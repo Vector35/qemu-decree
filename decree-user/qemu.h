@@ -121,7 +121,7 @@ void stop_all_tasks(void);
 extern unsigned long mmap_min_addr;
 extern int binary_count;
 extern int binary_index;
-extern int random_seed;
+extern uint8_t random_seed[48];
 extern long max_recv;
 
 #define MAX_BINARIES 64
@@ -215,6 +215,8 @@ unsigned long init_guest_space(unsigned long host_start,
                                unsigned long host_size,
                                unsigned long guest_start,
                                bool fixed);
+
+void get_random_bytes(uint8_t *out, size_t len);
 
 #include "qemu/log.h"
 
@@ -433,7 +435,7 @@ static inline void *lock_user_string(abi_ulong guest_addr)
 
 /* Record/replay functions */
 #define REPLAY_MAGIC 0xbd46f4dd
-#define REPLAY_VERSION 5
+#define REPLAY_VERSION 6
 
 #define REPLAY_FLAG_COMPACT 1 /* When set, doesn't include validation information */
 #define REPLAY_FLAG_LIMIT_CLOSED_FD_LOOP 2 /* When set, time out after a large number of reads/writes to closed fds */
@@ -444,7 +446,9 @@ struct replay_header {
     uint16_t binary_count; /* Number of binaries running in this challenge */
     uint16_t binary_id; /* Index of binary when running multiple binaries (starting at zero) */
     uint16_t flags; /* See above for available flags */
-    uint32_t seed; /* Random seed for this process */
+    uint32_t mem_pages; /* Memory pages used during execution */
+    uint64_t insn_retired; /* Number of instructions retired during execution */
+    uint8_t seed[48]; /* Random seed for this process */
 };
 
 #define REPLAY_EVENT_START 0
@@ -463,9 +467,10 @@ struct replay_event {
     uint32_t data_length; /* Length of associated data */
     uint32_t start_wall_time; /* Microseconds since start of execution at start of event */
     uint32_t end_wall_time; /* Microseconds since start of execution at end of event */
+    uint64_t insn_retired; /* Number of instructions since start of execution */
 };
 
-int replay_create(const char* filename, uint32_t flags, uint32_t seed);
+int replay_create(const char* filename, uint32_t flags, const uint8_t *seed);
 int replay_open(const char* filename);
 int replay_close(CPUArchState *env, int signal);
 
@@ -474,16 +479,20 @@ uint32_t get_current_wall_time(void);
 
 void replay_begin_event(void);
 void replay_nonblocking_event(void);
-void replay_write_event(uint16_t id, uint16_t fd, uint32_t result);
-void replay_write_event_with_required_data(uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len);
-void replay_write_event_with_validation_data(uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len);
-void replay_write_validation_event(uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len);
+void replay_write_event(CPUArchState *env, uint16_t id, uint16_t fd, uint32_t result);
+void replay_write_event_with_required_data(CPUArchState *env, uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len);
+void replay_write_event_with_validation_data(CPUArchState *env, uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len);
+void replay_write_validation_event(CPUArchState *env, uint16_t id, uint16_t fd, uint32_t result, const void *data, size_t len);
 
 int is_replaying(void);
+int is_recording(void);
+int is_record_or_replay(void);
 int replay_has_validation(void);
 uint32_t get_replay_flags(void);
 void* read_replay_event(struct replay_event* evt);
 void free_replay_event(void* data);
+
+double get_insn_wall_time(CPUArchState *env);
 
 /* Analysis output functions */
 #define ANALYSIS_OUTPUT_MAGIC 0xbed3a629
@@ -512,8 +521,6 @@ struct analysis_define_event_data {
 
 int analysis_output_create(const char *filename);
 void analysis_output_close(void);
-
-void analysis_sync_wall_time(CPUArchState *env, uint32_t event_wall_time, uint32_t resume_wall_time);
 
 int32_t analysis_create_named_event(CPUArchState *env, const char *name);
 void analysis_output_event(CPUArchState *env, int32_t event_id, const void *data, size_t len);
