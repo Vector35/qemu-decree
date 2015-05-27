@@ -543,7 +543,6 @@ void activate_pending_analysis(CPUArchState *env);
 /* Analysis type initializers */
 void init_analysis(void);
 
-void init_perf_analysis(void);
 void init_call_trace_analysis(void);
 void init_branch_trace_analysis(void);
 void init_insn_trace_analysis(void);
