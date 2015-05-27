@@ -31,8 +31,8 @@ def get_cbs(name, patched):
 def run_cb_test(name, patched, options, desc):
 	begin = time.time()
 	cb_paths, cb_names = get_cbs(name, patched)
-	p = subprocess.Popen(["i386-decree-user/qemu-cb-test", "--record", "tmp/replay", "--cb"] + cb_paths + options,
-			stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+	p = subprocess.Popen(["i386-decree-user/qemu-cb-test", "--record", "tmp/replay", "--optimize_failure", "--cb"] +
+			cb_paths + options, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 	out, error = p.communicate()
 	t = time.time() - begin
 	if p.returncode != 0:
