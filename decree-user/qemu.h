@@ -131,7 +131,7 @@ extern int fd_valid[MAX_FD];
 extern int limit_closed_fd_ops;
 extern int closed_fd_ops;
 
-#define MAX_CLOSED_FD_OPS 16384
+#define MAX_CLOSED_FD_OPS 1048576
 
 struct shared_data {
     /* The starting clock for all binaries should be the same */
