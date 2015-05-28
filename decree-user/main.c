@@ -232,6 +232,9 @@ void cpu_loop(CPUX86State *env)
     target_siginfo_t info;
 
     for(;;) {
+	    if (is_replaying())
+		    check_for_replay_timeout(env);
+
         cpu_exec_start(cs);
         trapnr = cpu_x86_exec(env);
         cpu_exec_end(cs);
@@ -1273,7 +1276,7 @@ int main(int argc, char **argv)
         struct replay_event evt;
         void* data;
 
-        data = read_replay_event(&evt);
+        data = read_replay_event(env, &evt);
         if ((evt.event_id != REPLAY_EVENT_START)) {
             fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
             abort();

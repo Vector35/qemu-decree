@@ -489,10 +489,12 @@ int is_recording(void);
 int is_record_or_replay(void);
 int replay_has_validation(void);
 uint32_t get_replay_flags(void);
-void* read_replay_event(struct replay_event* evt);
+void* read_replay_event(CPUArchState *env, struct replay_event* evt);
 void free_replay_event(void* data);
 
 double get_insn_wall_time(CPUArchState *env);
+
+void check_for_replay_timeout(CPUArchState *env);
 
 /* Analysis output functions */
 #define ANALYSIS_OUTPUT_MAGIC 0xbed3a629

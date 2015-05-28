@@ -223,6 +223,12 @@ int replay_close(CPUArchState *env, int signal)
     if ((!reading_replay) && (!writing_replay))
         return 1;
 
+    if (signal == TARGET_SIGTERM) {
+	    /* The cb-test script may terminate execution using SIGTERM on timeout. Redirect
+	       SIGTERM to SIGALRM so that all timeouts appear the same. */
+	    signal = TARGET_SIGALRM;
+    }
+
     if (reading_replay) {
         /* When playing back, ensure that the termination condition is expected. The termination event
            does not have a global ordering index, so do not synchronize here. */
@@ -235,7 +241,8 @@ int replay_close(CPUArchState *env, int signal)
         } else if (next_replay_event_hdr.event_id != REPLAY_EVENT_TERMINATE) {
             fprintf(stderr, "Process terminated early\n");
             result = 0;
-        } else if (next_replay_event_hdr.insn_retired != env->insn_retired) {
+        } else if (((signal == TARGET_SIGALRM) && (next_replay_event_hdr.insn_retired > env->insn_retired)) ||
+                   ((signal != TARGET_SIGALRM) && (next_replay_event_hdr.insn_retired != env->insn_retired))) {
             fprintf(stderr, "Replay terminated at instruction %" PRId64 ", but recorded at instruction %" PRId64 "\n",
                     env->insn_retired, next_replay_event_hdr.insn_retired);
             abort();
@@ -245,7 +252,7 @@ int replay_close(CPUArchState *env, int signal)
         } else if ((signal != 0) && (next_replay_event_hdr.result == 0)) {
             fprintf(stderr, "Unexpected signal %d during replay\n", signal);
             result = 0;
-        } else if (signal != next_replay_event_hdr.result) {
+        } else if ((signal != TARGET_SIGALRM) && (signal != next_replay_event_hdr.result)) {
             fprintf(stderr, "Expected signal %d, got signal %d\n", next_replay_event_hdr.result, signal);
             result = 0;
         }
@@ -422,7 +429,16 @@ uint32_t get_replay_flags(void)
 	return replay_flags;
 }
 
-void* read_replay_event(struct replay_event* evt)
+void check_for_replay_timeout(CPUArchState *env)
+{
+    if ((next_replay_event_hdr.event_id == REPLAY_EVENT_TERMINATE) && (next_replay_event_hdr.result == TARGET_SIGALRM) &&
+        (next_replay_event_hdr.insn_retired <= env->insn_retired)) {
+	    /* Original execution timed out, generate timeout event here as well */
+	    kill(getpid(), SIGALRM);
+    }
+}
+
+void* read_replay_event(CPUArchState *env, struct replay_event* evt)
 {
     void* data;
 
@@ -430,6 +446,8 @@ void* read_replay_event(struct replay_event* evt)
         fprintf(stderr, "Replay file truncated\n");
         abort();
     }
+
+    check_for_replay_timeout(env);
 
     memcpy(evt, &next_replay_event_hdr, sizeof(struct replay_event));
 
