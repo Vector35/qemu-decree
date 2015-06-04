@@ -187,7 +187,7 @@ static abi_ulong mmap_find_vma_reserved(abi_ulong start, abi_ulong size)
     }
 
     size = HOST_PAGE_ALIGN(size);
-    end_addr = start + size;
+    end_addr = start;
     if (end_addr > RESERVED_VA) {
         end_addr = RESERVED_VA;
     }
