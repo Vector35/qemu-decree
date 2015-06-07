@@ -177,7 +177,11 @@ static int32 roundAndPackInt32(flag zSign, uint64_t absZ, float_status *status)
     if ( zSign ) z = - z;
     if ( ( absZ>>32 ) || ( z && ( ( z < 0 ) ^ zSign ) ) ) {
         float_raise(float_flag_invalid, status);
+#if UNSIGNED_INT_INDEFINITE
+        return 0x80000000;
+#else
         return zSign ? (int32_t) 0x80000000 : 0x7FFFFFFF;
+#endif
     }
     if (roundBits) {
         status->float_exception_flags |= float_flag_inexact;
@@ -234,9 +238,13 @@ static int64 roundAndPackInt64(flag zSign, uint64_t absZ0, uint64_t absZ1,
     if ( z && ( ( z < 0 ) ^ zSign ) ) {
  overflow:
         float_raise(float_flag_invalid, status);
+#if UNSIGNED_INT_INDEFINITE
+        return LIT64( 0x8000000000000000 );
+#else
         return
               zSign ? (int64_t) LIT64( 0x8000000000000000 )
             : LIT64( 0x7FFFFFFFFFFFFFFF );
+#endif
     }
     if (absZ1) {
         status->float_exception_flags |= float_flag_inexact;
@@ -1587,7 +1595,9 @@ int32 float32_to_int32_round_to_zero(float32 a, float_status *status)
     if ( 0 <= shiftCount ) {
         if ( float32_val(a) != 0xCF000000 ) {
             float_raise(float_flag_invalid, status);
+#if !UNSIGNED_INT_INDEFINITE
             if ( ! aSign || ( ( aExp == 0xFF ) && aSig ) ) return 0x7FFFFFFF;
+#endif
         }
         return (int32_t) 0x80000000;
     }
@@ -1680,9 +1690,11 @@ int64 float32_to_int64(float32 a, float_status *status)
     shiftCount = 0xBE - aExp;
     if ( shiftCount < 0 ) {
         float_raise(float_flag_invalid, status);
+#if !UNSIGNED_INT_INDEFINITE
         if ( ! aSign || ( ( aExp == 0xFF ) && aSig ) ) {
             return LIT64( 0x7FFFFFFFFFFFFFFF );
         }
+#endif
         return (int64_t) LIT64( 0x8000000000000000 );
     }
     if ( aExp ) aSig |= 0x00800000;
@@ -1785,9 +1797,11 @@ int64 float32_to_int64_round_to_zero(float32 a, float_status *status)
     if ( 0 <= shiftCount ) {
         if ( float32_val(a) != 0xDF000000 ) {
             float_raise(float_flag_invalid, status);
+#if !UNSIGNED_INT_INDEFINITE
             if ( ! aSign || ( ( aExp == 0xFF ) && aSig ) ) {
                 return LIT64( 0x7FFFFFFFFFFFFFFF );
             }
+#endif
         }
         return (int64_t) LIT64( 0x8000000000000000 );
     }
@@ -3131,7 +3145,11 @@ int32 float64_to_int32_round_to_zero(float64 a, float_status *status)
     if ( ( z < 0 ) ^ aSign ) {
  invalid:
         float_raise(float_flag_invalid, status);
+#if UNSIGNED_INT_INDEFINITE
+        return 0x80000000;
+#else
         return aSign ? (int32_t) 0x80000000 : 0x7FFFFFFF;
+#endif
     }
     if ( ( aSig<<shiftCount ) != savedASig ) {
         status->float_exception_flags |= float_flag_inexact;
@@ -3216,12 +3234,14 @@ int64 float64_to_int64(float64 a, float_status *status)
     if ( shiftCount <= 0 ) {
         if ( 0x43E < aExp ) {
             float_raise(float_flag_invalid, status);
+#if !UNSIGNED_INT_INDEFINITE
             if (    ! aSign
                  || (    ( aExp == 0x7FF )
                       && ( aSig != LIT64( 0x0010000000000000 ) ) )
                ) {
                 return LIT64( 0x7FFFFFFFFFFFFFFF );
             }
+#endif
             return (int64_t) LIT64( 0x8000000000000000 );
         }
         aSigExtra = 0;
@@ -3261,12 +3281,14 @@ int64 float64_to_int64_round_to_zero(float64 a, float_status *status)
         if ( 0x43E <= aExp ) {
             if ( float64_val(a) != LIT64( 0xC3E0000000000000 ) ) {
                 float_raise(float_flag_invalid, status);
+#if !UNSIGNED_INT_INDEFINITE
                 if (    ! aSign
                      || (    ( aExp == 0x7FF )
                           && ( aSig != LIT64( 0x0010000000000000 ) ) )
                    ) {
                     return LIT64( 0x7FFFFFFFFFFFFFFF );
                 }
+#endif
             }
             return (int64_t) LIT64( 0x8000000000000000 );
         }
@@ -4845,7 +4867,11 @@ int32 floatx80_to_int32_round_to_zero(floatx80 a, float_status *status)
     if ( ( z < 0 ) ^ aSign ) {
  invalid:
         float_raise(float_flag_invalid, status);
+#if UNSIGNED_INT_INDEFINITE
+        return 0x80000000;
+#else
         return aSign ? (int32_t) 0x80000000 : 0x7FFFFFFF;
+#endif
     }
     if ( ( aSig<<shiftCount ) != savedASig ) {
         status->float_exception_flags |= float_flag_inexact;
@@ -4877,12 +4903,14 @@ int64 floatx80_to_int64(floatx80 a, float_status *status)
     if ( shiftCount <= 0 ) {
         if ( shiftCount ) {
             float_raise(float_flag_invalid, status);
+#if !UNSIGNED_INT_INDEFINITE
             if (    ! aSign
                  || (    ( aExp == 0x7FFF )
                       && ( aSig != LIT64( 0x8000000000000000 ) ) )
                ) {
                 return LIT64( 0x7FFFFFFFFFFFFFFF );
             }
+#endif
             return (int64_t) LIT64( 0x8000000000000000 );
         }
         aSigExtra = 0;
@@ -4919,9 +4947,11 @@ int64 floatx80_to_int64_round_to_zero(floatx80 a, float_status *status)
         aSig &= LIT64( 0x7FFFFFFFFFFFFFFF );
         if ( ( a.high != 0xC03E ) || aSig ) {
             float_raise(float_flag_invalid, status);
+#if !UNSIGNED_INT_INDEFINITE
             if ( ! aSign || ( ( aExp == 0x7FFF ) && aSig ) ) {
                 return LIT64( 0x7FFFFFFFFFFFFFFF );
             }
+#endif
         }
         return (int64_t) LIT64( 0x8000000000000000 );
     }
@@ -5914,7 +5944,11 @@ int32 float128_to_int32_round_to_zero(float128 a, float_status *status)
     if ( ( z < 0 ) ^ aSign ) {
  invalid:
         float_raise(float_flag_invalid, status);
+#if UNSIGNED_INT_INDEFINITE
+        return 0x80000000;
+#else
         return aSign ? (int32_t) 0x80000000 : 0x7FFFFFFF;
+#endif
     }
     if ( ( aSig0<<shiftCount ) != savedASig ) {
         status->float_exception_flags |= float_flag_inexact;
@@ -5948,6 +5982,7 @@ int64 float128_to_int64(float128 a, float_status *status)
     if ( shiftCount <= 0 ) {
         if ( 0x403E < aExp ) {
             float_raise(float_flag_invalid, status);
+#if !UNSIGNED_INT_INDEFINITE
             if (    ! aSign
                  || (    ( aExp == 0x7FFF )
                       && ( aSig1 || ( aSig0 != LIT64( 0x0001000000000000 ) ) )
@@ -5955,6 +5990,7 @@ int64 float128_to_int64(float128 a, float_status *status)
                ) {
                 return LIT64( 0x7FFFFFFFFFFFFFFF );
             }
+#endif
             return (int64_t) LIT64( 0x8000000000000000 );
         }
         shortShift128Left( aSig0, aSig1, - shiftCount, &aSig0, &aSig1 );
@@ -6000,9 +6036,11 @@ int64 float128_to_int64_round_to_zero(float128 a, float_status *status)
             }
             else {
                 float_raise(float_flag_invalid, status);
+#if !UNSIGNED_INT_INDEFINITE
                 if ( ! aSign || ( ( aExp == 0x7FFF ) && ( aSig0 | aSig1 ) ) ) {
                     return LIT64( 0x7FFFFFFFFFFFFFFF );
                 }
+#endif
             }
             return (int64_t) LIT64( 0x8000000000000000 );
         }

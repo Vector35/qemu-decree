@@ -1230,3 +1230,8 @@ static float128 propagateFloat128NaN(float128 a, float128 b,
     }
 }
 
+#if defined(TARGET_I386) || defined(TARGET_X86_64)
+#define UNSIGNED_INT_INDEFINITE 1
+#else
+#define UNSIGNED_INT_INDEFINITE 0
+#endif
