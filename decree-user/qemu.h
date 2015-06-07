@@ -440,6 +440,8 @@ static inline void *lock_user_string(abi_ulong guest_addr)
 #define REPLAY_FLAG_COMPACT 1 /* When set, doesn't include validation information */
 #define REPLAY_FLAG_LIMIT_CLOSED_FD_LOOP 2 /* When set, time out after a large number of reads/writes to closed fds */
 
+//#define REPLAY_VERIFY_INSN_RETIRED /* When defined, verify instruction counter during replay */
+
 struct replay_header {
     uint32_t magic; /* Must equal REPLAY_MAGIC */
     uint16_t version; /* Replay version, set to REPLAY_VERSION */

@@ -241,11 +241,13 @@ int replay_close(CPUArchState *env, int signal)
         } else if (next_replay_event_hdr.event_id != REPLAY_EVENT_TERMINATE) {
             fprintf(stderr, "Process terminated early\n");
             result = 0;
+#ifdef REPLAY_VERIFY_INSN_RETIRED
         } else if (((signal == TARGET_SIGALRM) && (next_replay_event_hdr.insn_retired > env->insn_retired)) ||
                    ((signal != TARGET_SIGALRM) && (next_replay_event_hdr.insn_retired != env->insn_retired))) {
             fprintf(stderr, "Replay terminated at instruction %" PRId64 ", but recorded at instruction %" PRId64 "\n",
                     env->insn_retired, next_replay_event_hdr.insn_retired);
             abort();
+#endif
         } else if ((signal == 0) && (next_replay_event_hdr.result != 0)) {
             fprintf(stderr, "Expected signal %d, but process terminated normally\n", next_replay_event_hdr.result);
             result = 0;

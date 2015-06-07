@@ -298,11 +298,13 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
                 abort();
             }
+#ifdef REPLAY_VERIFY_INSN_RETIRED
             if (evt.insn_retired != env->insn_retired) {
                 fprintf(stderr, "Replay event at instruction %" PRId64 ", but recorded at instruction %" PRId64 "\n",
                         env->insn_retired, evt.insn_retired);
                 abort();
             }
+#endif
 
             ret = evt.result;
 
@@ -404,11 +406,13 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
                 abort();
             }
+#ifdef REPLAY_VERIFY_INSN_RETIRED
             if (evt.insn_retired != env->insn_retired) {
                 fprintf(stderr, "Replay event at instruction %" PRId64 ", but recorded at instruction %" PRId64 "\n",
                         env->insn_retired, evt.insn_retired);
                 abort();
             }
+#endif
 
             ret = evt.result;
 
@@ -532,11 +536,13 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
                 abort();
             }
+#ifdef REPLAY_VERIFY_INSN_RETIRED
             if (evt.insn_retired != env->insn_retired) {
                 fprintf(stderr, "Replay event at instruction %" PRId64 ", but recorded at instruction %" PRId64 "\n",
                         env->insn_retired, evt.insn_retired);
                 abort();
             }
+#endif
 
             ret = evt.result;
 
@@ -617,19 +623,27 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
         break;
 
     case 5: /* allocate */
-        if (!access_ok(VERIFY_WRITE, arg3, sizeof(abi_long)))
-            goto efault;
-        ret = get_errno(target_mmap(0, arg1, PROT_READ | PROT_WRITE | (arg2 ? PROT_EXEC: 0),
-                                    MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
-        if (!is_error(ret)) {
-            if (put_user_sal(ret, arg3))
+        if (arg1 == 0) {
+            ret = -TARGET_EINVAL;
+        } else {
+            if (!access_ok(VERIFY_WRITE, arg3, sizeof(abi_long)))
                 goto efault;
-            ret = 0;
+            ret = get_errno(target_mmap(0, arg1, PROT_READ | PROT_WRITE | (arg2 ? PROT_EXEC: 0),
+                        MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
+            if (!is_error(ret)) {
+                if (put_user_sal(ret, arg3))
+                    goto efault;
+                ret = 0;
+            }
         }
         break;
 
     case 6: /* deallocate */
-        ret = get_errno(target_munmap(arg1, arg2));
+        if (arg2 == 0) {
+            ret = -TARGET_EINVAL;
+        } else {
+            ret = get_errno(target_munmap(arg1, arg2));
+        }
         break;
 
     case 7: /* random */
@@ -648,11 +662,13 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                     fprintf(stderr, "Replay event mismatch at index %d\n", evt.global_ordering);
                     abort();
                 }
+#ifdef REPLAY_VERIFY_INSN_RETIRED
                 if (evt.insn_retired != env->insn_retired) {
                     fprintf(stderr, "Replay event at instruction %" PRId64 ", but recorded at instruction %" PRId64 "\n",
                             env->insn_retired, evt.insn_retired);
                     abort();
                 }
+#endif
 
                 if (evt.result != arg2) {
                     fprintf(stderr, "Replay length mismatch at index %d\n", evt.global_ordering);
