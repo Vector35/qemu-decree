@@ -42,13 +42,14 @@ static int activate_region(CPUArchState *env, int argc, char **argv)
     def->index = next_region_index++;
 
     size_t len = 1;
-    for (size_t i = 2; i < argc; i++) {
+    size_t i;
+    for (i = 2; i < argc; i++) {
         len += strlen(argv[i]) + 1;
     }
 
     def->description = (char*)malloc(len);
     def->description[0] = 0;
-    for (size_t i = 2; i < argc; i++) {
+    for (i = 2; i < argc; i++) {
         if (i > 2)
             strcat(def->description, ",");
         strcat(def->description, argv[i]);

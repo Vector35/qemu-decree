@@ -254,7 +254,7 @@ void activate_pending_analysis(CPUArchState *env)
     log_event_id = analysis_create_named_event(env, "log");
 }
 
-void init_analysis()
+void init_analysis(void)
 {
     init_call_trace_analysis();
     init_branch_trace_analysis();

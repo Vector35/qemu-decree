@@ -240,7 +240,8 @@ static char *stringify_data(const void *data, size_t len)
     char *result = (char*)malloc((len * 4) + 1);
     char *outptr = result;
 
-    for (size_t i = 0; i < len; i++) {
+    size_t i;
+    for (i = 0; i < len; i++) {
         uint8_t val = ((const uint8_t*)data)[i];
         if (val == '\n') {
             *(outptr++) = '\\';
@@ -548,6 +549,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
         }
 
         if (is_analysis_enabled() && (!is_error(ret))) {
+            p = g2h(arg2);
             char *data_str = stringify_data(p, ret);
             analysis_output_log(env, "receive", "Receive \"%s\"", data_str);
             free(data_str);
