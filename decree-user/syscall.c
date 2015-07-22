@@ -23,6 +23,7 @@
 
 
 #define ERRNO_TABLE_SIZE 1200
+#define MAX_STRINGIFY_LENGTH 80
 
 /* target_to_host_errno_table[] is initialized from
  * host_to_target_errno_table[] in syscall_init(). */
@@ -231,6 +232,39 @@ static abi_long do_select(int n,
     return ret;
 }
 
+static char *stringify_data(const void *data, size_t len)
+{
+    if (len > MAX_STRINGIFY_LENGTH)
+        len = MAX_STRINGIFY_LENGTH;
+
+    char *result = (char*)malloc((len * 4) + 1);
+    char *outptr = result;
+
+    for (size_t i = 0; i < len; i++) {
+        uint8_t val = ((const uint8_t*)data)[i];
+        if (val == '\n') {
+            *(outptr++) = '\\';
+            *(outptr++) = 'n';
+        } else if (val == '\r') {
+            *(outptr++) = '\\';
+            *(outptr++) = 'r';
+        } else if (val == '\t') {
+            *(outptr++) = '\\';
+            *(outptr++) = 't';
+        } else if ((val >= 0x20) && (val <= 0x7e)) {
+            *(outptr++) = (char)val;
+        } else {
+            *(outptr++) = '\\';
+            *(outptr++) = 'x';
+            *(outptr++) = "0123456789abcdef"[val >> 4];
+            *(outptr++) = "0123456789abcdef"[val & 0xf];
+        }
+    }
+
+    *(outptr++) = 0;
+    return result;
+}
+
 /* do_syscall() should always have a single exit point at the end so
    that actions, such as logging of syscall results, can be performed.
    All errnos that do_syscall() returns must be -TARGET_<errcode>. */
@@ -250,6 +284,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
 
     switch(num) {
     case 1: /* terminate */
+        analysis_output_log(env, "terminate", "Terminated normally with code %d", arg1);
         notify_exit(env, 0);
         if (!replay_close(env, 0))
             abort();
@@ -344,6 +379,12 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 replay_write_event_with_validation_data(env, REPLAY_EVENT_TRANSMIT, arg1, ret, p, ret);
             if (binary_count > 1)
                 pthread_mutex_unlock(shared->write_mutex[arg1]);
+        }
+
+        if (is_analysis_enabled() && (!is_error(ret))) {
+            char *data_str = stringify_data(p, ret);
+            analysis_output_log(env, "transmit", "Transmit \"%s\"", data_str);
+            free(data_str);
         }
 
         unlock_user(p, arg2, 0);
@@ -506,6 +547,12 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 pthread_mutex_unlock(shared->read_mutex[arg1]);
         }
 
+        if (is_analysis_enabled() && (!is_error(ret))) {
+            char *data_str = stringify_data(p, ret);
+            analysis_output_log(env, "receive", "Receive \"%s\"", data_str);
+            free(data_str);
+        }
+
         len = ret;
         if (!is_error(ret)) {
             if (arg4 && put_user_sal(ret, arg4))
@@ -616,6 +663,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
         }
 
         if (ret >= 0) {
+            analysis_output_log(env, "fdwait", "Wait for transmit/receive");
             if (arg5 && put_user_sal(ret, arg5))
                 goto efault;
             ret = 0;
@@ -631,6 +679,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
             ret = get_errno(target_mmap(0, arg1, PROT_READ | PROT_WRITE | (arg2 ? PROT_EXEC: 0),
                         MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
             if (!is_error(ret)) {
+                analysis_output_log(env, "allocate", "Allocate %d bytes at 0x%x", arg1, ret);
                 if (put_user_sal(ret, arg3))
                     goto efault;
                 ret = 0;
@@ -643,6 +692,9 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
             ret = -TARGET_EINVAL;
         } else {
             ret = get_errno(target_munmap(arg1, arg2));
+            if (!is_error(ret)) {
+                analysis_output_log(env, "free", "Free %d bytes at 0x%x", arg2, arg1);
+            }
         }
         break;
 
@@ -693,6 +745,8 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
             replay_nonblocking_event();
             replay_write_validation_event(env, REPLAY_EVENT_RANDOM, 0, arg2, p, arg2);
         }
+
+        analysis_output_log(env, "random", "Generate %d random bytes", arg2);
 
         unlock_user(p, arg1, arg2);
         if (arg3 && put_user_sal(arg2, arg3))

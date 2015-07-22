@@ -435,7 +435,7 @@ static inline void *lock_user_string(abi_ulong guest_addr)
 
 /* Record/replay functions */
 #define REPLAY_MAGIC 0xbd46f4dd
-#define REPLAY_VERSION 6
+#define REPLAY_VERSION 7
 
 #define REPLAY_FLAG_COMPACT 1 /* When set, doesn't include validation information */
 #define REPLAY_FLAG_LIMIT_CLOSED_FD_LOOP 2 /* When set, time out after a large number of reads/writes to closed fds */
@@ -449,6 +449,8 @@ struct replay_header {
     uint16_t binary_id; /* Index of binary when running multiple binaries (starting at zero) */
     uint16_t flags; /* See above for available flags */
     uint32_t mem_pages; /* Memory pages used during execution */
+    uint32_t exit_signal; /* Signal, if any, that caused termination */
+    uint32_t reserved;
     uint64_t insn_retired; /* Number of instructions retired during execution */
     uint8_t seed[48]; /* Random seed for this process */
 };
@@ -523,11 +525,19 @@ struct analysis_define_event_data {
     char name[0];
 };
 
+struct analysis_log_event_data {
+    uint32_t name_length;
+    char text[0];
+};
+
 int analysis_output_create(const char *filename);
 void analysis_output_close(void);
+int is_analysis_enabled(void);
 
 int32_t analysis_create_named_event(CPUArchState *env, const char *name);
 void analysis_output_event(CPUArchState *env, int32_t event_id, const void *data, size_t len);
+
+void analysis_output_log(CPUArchState *env, const char *event_name, const char *description_fmt, ...);
 
 /* Analysis type registration */
 typedef struct AnalysisType {

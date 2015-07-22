@@ -22,6 +22,7 @@
  * THE SOFTWARE.
  */
 
+#include <stdarg.h>
 #include "qemu.h"
 
 #define OUTPUT_BUFFER_SIZE (16 * 1048576)
@@ -48,6 +49,8 @@ static int next_event_id = 0;
 
 static uint8_t *output_buffer = NULL;
 static size_t consumed_output_buffer = 0;
+
+static int32_t log_event_id = -1;
 
 static void output_write(const void* data, size_t len)
 {
@@ -138,6 +141,7 @@ void analysis_output_close(void)
     close(output_fd);
     g_free(output_buffer);
     output_buffer = NULL;
+    output_fd = -1;
 }
 
 int32_t analysis_create_named_event(CPUArchState *env, const char *name)
@@ -246,11 +250,40 @@ void activate_pending_analysis(CPUArchState *env)
             exit(1);
         }
     }
+
+    log_event_id = analysis_create_named_event(env, "log");
 }
 
-void init_analysis(void)
+void init_analysis()
 {
     init_call_trace_analysis();
     init_branch_trace_analysis();
     init_insn_trace_analysis();
+}
+
+int is_analysis_enabled(void)
+{
+    return output_fd >= 0;
+}
+
+void analysis_output_log(CPUArchState *env, const char *event_name, const char *description_fmt, ...)
+{
+    if (!is_analysis_enabled)
+        return;
+
+    char *description;
+    va_list args;
+    va_start(args, description_fmt);
+    if (vasprintf(&description, description_fmt, args) < 0)
+        return;
+
+    struct analysis_log_event_data *data;
+    data = (struct analysis_log_event_data*)malloc(sizeof(*data) + strlen(event_name) + strlen(description));
+    data->name_length = strlen(event_name);
+    memcpy(data->text, event_name, strlen(event_name));
+    memcpy(&data->text[data->name_length], description, strlen(description));
+
+    analysis_output_event(env, log_event_id, data, sizeof(*data) + strlen(event_name) + strlen(description));
+    free(data);
+    free(description);
 }

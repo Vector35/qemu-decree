@@ -129,6 +129,7 @@ int replay_create(const char* filename, uint32_t flags, const uint8_t *seed)
     memcpy(hdr.seed, seed, sizeof(hdr.seed));
     hdr.flags = flags;
     hdr.insn_retired = 0; /* Filled in at termination */
+    hdr.exit_signal = 0; /* Filled in at termination */
     hdr.mem_pages = 0; /* Filled in at termination */
     replay_buffered_write(&hdr, sizeof(hdr));
     return 1;
@@ -282,6 +283,7 @@ int replay_close(CPUArchState *env, int signal)
         }
 
         hdr.insn_retired = env->insn_retired;
+        hdr.exit_signal = signal;
 
         if (lseek(replay_fd, 0, SEEK_SET) < 0) {
             fprintf(stderr, "Failed to seek when updating replay header\n");

@@ -465,6 +465,7 @@ static void QEMU_NORETURN force_sig(int target_sig)
     sigaction(SIGABRT, &act, NULL);
 
     /* Process is about to die, finalize any active replay */
+    analysis_output_log(env, "crash", "Crashed with signal %d", target_sig);
     notify_exit(env, target_sig);
 
     if (!replay_close(env, target_sig)) {
