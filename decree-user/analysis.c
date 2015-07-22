@@ -268,7 +268,7 @@ int is_analysis_enabled(void)
 
 void analysis_output_log(CPUArchState *env, const char *event_name, const char *description_fmt, ...)
 {
-    if (!is_analysis_enabled)
+    if (!is_analysis_enabled())
         return;
 
     char *description;
