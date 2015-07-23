@@ -560,6 +560,7 @@ void init_analysis(void);
 void init_call_trace_analysis(void);
 void init_branch_trace_analysis(void);
 void init_insn_trace_analysis(void);
+void init_region_analysis(void);
 
 /* Instrumentation API */
 struct Instruction;
