@@ -47,6 +47,18 @@ def handle_instruction_regs_disasm(wall_time, binary_id, insn_count, contents):
 	print "%s esp=%.8x ebp=%.8x esi=%.8x edi=%.8x" % (" " * len(prefix), esp, ebp, esi, edi)
 	print "%s 0x%x  %s" % (" " * len(prefix), eip, contents[36:])
 
+def handle_mem_read(wall_time, binary_id, insn_count, contents):
+	prefix = "[%.6f %d:%.8x]" % (wall_time, binary_id, insn_count)
+	addr = struct.unpack("<I", contents[0:4])[0]
+	value = contents[4:]
+	print "%s Read address %.8x, value %s" % (prefix, addr, value[::-1].encode("hex"))
+
+def handle_mem_write(wall_time, binary_id, insn_count, contents):
+	prefix = "[%.6f %d:%.8x]" % (wall_time, binary_id, insn_count)
+	addr = struct.unpack("<I", contents[0:4])[0]
+	value = contents[4:]
+	print "%s Write address %.8x, value %s" % (prefix, addr, value[::-1].encode("hex"))
+
 def handle_perf(wall_time, binary_id, insn_count, contents):
 	prefix = "[%.6f %d:%.8x]" % (wall_time, binary_id, insn_count)
 	mem_pages = struct.unpack("<I", contents[0:4])[0]
@@ -67,6 +79,8 @@ event_handler["instruction"] = handle_instruction
 event_handler["instruction_regs"] = handle_instruction_regs
 event_handler["instruction_disasm"] = handle_instruction_disasm
 event_handler["instruction_regs_disasm"] = handle_instruction_regs_disasm
+event_handler["mem_read"] = handle_mem_read
+event_handler["mem_write"] = handle_mem_write
 event_handler["perf"] = handle_perf
 event_handler["log"] = handle_log
 

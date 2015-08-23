@@ -259,6 +259,7 @@ void init_analysis(void)
     init_call_trace_analysis();
     init_branch_trace_analysis();
     init_insn_trace_analysis();
+    init_mem_trace_analysis();
     init_region_analysis();
 }
 

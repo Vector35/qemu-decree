@@ -560,6 +560,7 @@ void init_analysis(void);
 void init_call_trace_analysis(void);
 void init_branch_trace_analysis(void);
 void init_insn_trace_analysis(void);
+void init_mem_trace_analysis(void);
 void init_region_analysis(void);
 
 /* Instrumentation API */
@@ -567,6 +568,7 @@ struct Instruction;
 typedef int (*InsnInstrumentationFilterFn)(CPUArchState *env, void *data, abi_ulong pc, struct Instruction *insn);
 typedef void (*InsnInstrumentationFn)(CPUArchState *env, void* data, abi_ulong pc, struct Instruction *insn);
 typedef void (*ExitCallbackFn)(CPUArchState *env, void* data, int sig);
+typedef void (*ReadWriteCallbackFn)(CPUArchState *env, void* data, abi_ulong addr, abi_ulong size, abi_ulong value);
 
 typedef struct InsnInstrumentation {
     void *data; /* Opaque data for use by the instrumentation implementation */
@@ -583,14 +585,23 @@ typedef struct ExitCallback {
     QTAILQ_ENTRY(ExitCallback) entry;
 } ExitCallback;
 
+typedef struct ReadWriteCallback {
+    void *data; /* Opaque data for use by the callback */
+    ReadWriteCallbackFn callback;
+    QTAILQ_ENTRY(ReadWriteCallback) entry;
+} ReadWriteCallback;
+
 struct InstrumentationState {
     QTAILQ_HEAD(insn_instrumentation_head, InsnInstrumentation) insn_instrumentation;
     QTAILQ_HEAD(exit_callback_head, ExitCallback) exit_callbacks;
+    QTAILQ_HEAD(read_callback_head, ReadWriteCallback) read_callbacks;
+    QTAILQ_HEAD(write_callback_head, ReadWriteCallback) write_callbacks;
 };
 
 extern struct InstrumentationState instrumentation;
 extern target_ulong insn_eip;
 extern struct Instruction cur_insn;
+extern int memory_trace_enabled;
 
 InsnInstrumentation *add_insn_instrumentation(CPUArchState *env, InsnInstrumentationFilterFn filter,
                                               InsnInstrumentationFn before, InsnInstrumentationFn after,
@@ -600,6 +611,13 @@ void remove_insn_instrumentation(CPUArchState *env, InsnInstrumentation *instrum
 ExitCallback *add_exit_callback(ExitCallbackFn cb, void *data);
 void remove_exit_callback(ExitCallback *cb);
 void notify_exit(CPUArchState *env, int sig);
+
+ReadWriteCallback *add_memory_read_callback(CPUArchState *env, ReadWriteCallbackFn cb, void *data);
+ReadWriteCallback *add_memory_write_callback(CPUArchState *env, ReadWriteCallbackFn cb, void *data);
+void remove_memory_read_callback(CPUArchState *env, ReadWriteCallback *cb);
+void remove_memory_write_callback(CPUArchState *env, ReadWriteCallback *cb);
+void notify_memory_read(CPUArchState *env, abi_ulong addr, abi_ulong size, abi_ulong value);
+void notify_memory_write(CPUArchState *env, abi_ulong addr, abi_ulong size, abi_ulong value);
 
 #include <pthread.h>
 

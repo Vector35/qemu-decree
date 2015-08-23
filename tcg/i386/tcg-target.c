@@ -23,6 +23,9 @@
  */
 
 #include "tcg-be-ldst.h"
+#if defined(CONFIG_DECREE_USER)
+#include "qemu.h"
+#endif
 
 #ifndef NDEBUG
 static const char * const tcg_target_reg_names[TCG_TARGET_NB_REGS] = {
@@ -93,7 +96,7 @@ static const int tcg_target_call_oarg_regs[] = {
 #define TCG_CT_CONST_U32 0x200
 #define TCG_CT_CONST_I32 0x400
 
-/* Registers used with L constraint, which are the first argument 
+/* Registers used with L constraint, which are the first argument
    registers on x86_64, and two random call clobbered registers on
    i386. */
 #if TCG_TARGET_REG_BITS == 64
@@ -1569,6 +1572,14 @@ static void tcg_out_qemu_ld(TCGContext *s, const TCGArg *args, bool is64)
            here, or (if GUEST_BASE == 0, or a segment register is in use)
            use the ADDR32 prefix.  For now, do nothing.  */
         if (GUEST_BASE && guest_base_flags) {
+#if defined(CONFIG_DECREE_USER)
+	        if (memory_trace_enabled) {
+		        /* Use TCG_REG_L1 for the address so that it won't be
+		           clobbered by the load */
+		        tcg_out_mov(s, TCG_TYPE_PTR, TCG_REG_L1, base);
+		        base = TCG_REG_L1;
+	        }
+#endif
             seg = guest_base_flags;
             offset = 0;
         } else if (TCG_TARGET_REG_BITS == 64 && offset != GUEST_BASE) {
@@ -1579,6 +1590,21 @@ static void tcg_out_qemu_ld(TCGContext *s, const TCGArg *args, bool is64)
         }
 
         tcg_out_qemu_ld_direct(s, datalo, datahi, base, offset, seg, opc);
+    }
+#endif
+
+#if defined(CONFIG_DECREE_USER)
+    /* If memory tracing is enabled, generate call to trace function */
+    if (memory_trace_enabled) {
+#if TCG_TARGET_REG_BITS == 64
+        tcg_out_mov(s, TCG_TYPE_PTR, tcg_target_call_iarg_regs[0], TCG_AREG0);
+        tcg_out_mov(s, TCG_TYPE_PTR, tcg_target_call_iarg_regs[1], TCG_REG_L1);
+        tcg_out_movi(s, TCG_TYPE_I32, tcg_target_call_iarg_regs[2], 1 << (opc & MO_SIZE));
+        tcg_out_mov(s, TCG_TYPE_PTR, tcg_target_call_iarg_regs[3], datalo);
+        tcg_out_call(s, (void * const) notify_memory_read);
+#else
+#warning memory trace not implemented for 32-bit host
+#endif
     }
 #endif
 }
@@ -1710,6 +1736,22 @@ static void tcg_out_qemu_st(TCGContext *s, const TCGArg *args, bool is64)
         }
 
         tcg_out_qemu_st_direct(s, datalo, datahi, base, offset, seg, opc);
+    }
+#endif
+
+#if defined(CONFIG_DECREE_USER)
+    /* If memory tracing is enabled, generate call to trace function */
+    if (memory_trace_enabled) {
+#if TCG_TARGET_REG_BITS == 64
+	    /* Second argument already contains address of load */
+        tcg_out_mov(s, TCG_TYPE_PTR, tcg_target_call_iarg_regs[1], addrlo);
+        tcg_out_mov(s, TCG_TYPE_PTR, tcg_target_call_iarg_regs[3], datalo);
+        tcg_out_mov(s, TCG_TYPE_PTR, tcg_target_call_iarg_regs[0], TCG_AREG0);
+        tcg_out_movi(s, TCG_TYPE_I32, tcg_target_call_iarg_regs[2], 1 << (opc & MO_SIZE));
+        tcg_out_call(s, (void * const) notify_memory_write);
+#else
+#warning memory trace not implemented for 32-bit host
+#endif
     }
 #endif
 }
