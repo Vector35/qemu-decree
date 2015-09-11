@@ -5,6 +5,10 @@ include config-target.mak
 include config-devices.mak
 include $(SRC_PATH)/rules.mak
 
+ifdef CONFIG_TCG_INTERPRETER
+QEMU_INCLUDES=$(QEMU_TCI_INCLUDES)
+endif
+
 $(call set-vpath, $(SRC_PATH))
 ifdef CONFIG_LINUX
 QEMU_CFLAGS += -I../linux-headers

@@ -28,6 +28,9 @@
 #include "exec/exec-all.h"           /* MAX_OPC_PARAM_IARGS */
 #include "exec/cpu_ldst.h"
 #include "tcg-op.h"
+#if defined(CONFIG_DECREE_USER)
+#include "qemu.h"
+#endif
 
 /* Marker for missing code. */
 #define TODO() \
@@ -1111,27 +1114,59 @@ uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *tb_ptr)
             switch (memop) {
             case MO_UB:
                 tmp32 = qemu_ld_ub;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 1, tmp32);
+#endif
                 break;
             case MO_SB:
                 tmp32 = (int8_t)qemu_ld_ub;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 1, tmp32);
+#endif
                 break;
             case MO_LEUW:
                 tmp32 = qemu_ld_leuw;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 2, tmp32);
+#endif
                 break;
             case MO_LESW:
                 tmp32 = (int16_t)qemu_ld_leuw;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 2, tmp32);
+#endif
                 break;
             case MO_LEUL:
                 tmp32 = qemu_ld_leul;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 4, tmp32);
+#endif
                 break;
             case MO_BEUW:
                 tmp32 = qemu_ld_beuw;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 2, tmp32);
+#endif
                 break;
             case MO_BESW:
                 tmp32 = (int16_t)qemu_ld_beuw;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 2, tmp32);
+#endif
                 break;
             case MO_BEUL:
                 tmp32 = qemu_ld_beul;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 4, tmp32);
+#endif
                 break;
             default:
                 tcg_abort();
@@ -1148,39 +1183,87 @@ uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *tb_ptr)
             switch (memop) {
             case MO_UB:
                 tmp64 = qemu_ld_ub;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 1, tmp64);
+#endif
                 break;
             case MO_SB:
                 tmp64 = (int8_t)qemu_ld_ub;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 1, tmp64);
+#endif
                 break;
             case MO_LEUW:
                 tmp64 = qemu_ld_leuw;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 2, tmp64);
+#endif
                 break;
             case MO_LESW:
                 tmp64 = (int16_t)qemu_ld_leuw;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 2, tmp64);
+#endif
                 break;
             case MO_LEUL:
                 tmp64 = qemu_ld_leul;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 4, tmp64);
+#endif
                 break;
             case MO_LESL:
                 tmp64 = (int32_t)qemu_ld_leul;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 4, tmp64);
+#endif
                 break;
             case MO_LEQ:
                 tmp64 = qemu_ld_leq;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 8, tmp64);
+#endif
                 break;
             case MO_BEUW:
                 tmp64 = qemu_ld_beuw;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 2, tmp64);
+#endif
                 break;
             case MO_BESW:
                 tmp64 = (int16_t)qemu_ld_beuw;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 2, tmp64);
+#endif
                 break;
             case MO_BEUL:
                 tmp64 = qemu_ld_beul;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 4, tmp64);
+#endif
                 break;
             case MO_BESL:
                 tmp64 = (int32_t)qemu_ld_beul;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 4, tmp64);
+#endif
                 break;
             case MO_BEQ:
                 tmp64 = qemu_ld_beq;
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_read(env, taddr, 8, tmp64);
+#endif
                 break;
             default:
                 tcg_abort();
@@ -1197,18 +1280,38 @@ uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *tb_ptr)
             switch (memop) {
             case MO_UB:
                 qemu_st_b(t0);
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_write(env, taddr, 1, t0);
+#endif
                 break;
             case MO_LEUW:
                 qemu_st_lew(t0);
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_write(env, taddr, 2, t0);
+#endif
                 break;
             case MO_LEUL:
                 qemu_st_lel(t0);
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_write(env, taddr, 4, t0);
+#endif
                 break;
             case MO_BEUW:
                 qemu_st_bew(t0);
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_write(env, taddr, 2, t0);
+#endif
                 break;
             case MO_BEUL:
                 qemu_st_bel(t0);
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_write(env, taddr, 4, t0);
+#endif
                 break;
             default:
                 tcg_abort();
@@ -1221,24 +1324,52 @@ uintptr_t tcg_qemu_tb_exec(CPUArchState *env, uint8_t *tb_ptr)
             switch (memop) {
             case MO_UB:
                 qemu_st_b(tmp64);
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_write(env, taddr, 1, tmp64);
+#endif
                 break;
             case MO_LEUW:
                 qemu_st_lew(tmp64);
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_write(env, taddr, 2, tmp64);
+#endif
                 break;
             case MO_LEUL:
                 qemu_st_lel(tmp64);
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_write(env, taddr, 4, tmp64);
+#endif
                 break;
             case MO_LEQ:
                 qemu_st_leq(tmp64);
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_write(env, taddr, 8, tmp64);
+#endif
                 break;
             case MO_BEUW:
                 qemu_st_bew(tmp64);
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_write(env, taddr, 2, tmp64);
+#endif
                 break;
             case MO_BEUL:
                 qemu_st_bel(tmp64);
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_write(env, taddr, 4, tmp64);
+#endif
                 break;
             case MO_BEQ:
                 qemu_st_beq(tmp64);
+#if defined(CONFIG_DECREE_USER)
+                if (memory_trace_enabled)
+                    notify_memory_write(env, taddr, 8, tmp64);
+#endif
                 break;
             default:
                 tcg_abort();

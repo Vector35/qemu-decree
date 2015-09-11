@@ -23,6 +23,7 @@
 /*-darwin-user
 /*-linux-user
 /*-decree-user
+/*-decree-user-tci
 /*-bsd-user
 /libdis*
 /libuser

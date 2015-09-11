@@ -1223,7 +1223,7 @@ if [ "$linux_user" = "yes" ]; then
     mak_wilds="${mak_wilds} $source_path/default-configs/*-linux-user.mak"
 fi
 if [ "$decree_user" = "yes" ]; then
-    mak_wilds="${mak_wilds} $source_path/default-configs/*-decree-user.mak"
+    mak_wilds="${mak_wilds} $source_path/default-configs/*-decree-user*.mak"
 fi
 if [ "$bsd_user" = "yes" ]; then
     mak_wilds="${mak_wilds} $source_path/default-configs/*-bsd-user.mak"
@@ -4946,6 +4946,7 @@ if test "$pthread_setname_np" = "yes" ; then
   echo "CONFIG_PTHREAD_SETNAME_NP=y" >> $config_host_mak
 fi
 
+QEMU_TCI_INCLUDES="-I\$(SRC_PATH)/tcg/tci $QEMU_INCLUDES"
 if test "$tcg_interpreter" = "yes"; then
   QEMU_INCLUDES="-I\$(SRC_PATH)/tcg/tci $QEMU_INCLUDES"
 elif test "$ARCH" = "sparc64" ; then
@@ -4960,6 +4961,7 @@ else
   QEMU_INCLUDES="-I\$(SRC_PATH)/tcg/\$(ARCH) $QEMU_INCLUDES"
 fi
 QEMU_INCLUDES="-I\$(SRC_PATH)/tcg $QEMU_INCLUDES"
+QEMU_TCI_INCLUDES="-I\$(SRC_PATH)/tcg $QEMU_TCI_INCLUDES"
 
 echo "TOOLS=$tools" >> $config_host_mak
 echo "ROMS=$roms" >> $config_host_mak
@@ -4996,6 +4998,7 @@ echo "CFLAGS=$CFLAGS" >> $config_host_mak
 echo "CFLAGS_NOPIE=$CFLAGS_NOPIE" >> $config_host_mak
 echo "QEMU_CFLAGS=$QEMU_CFLAGS" >> $config_host_mak
 echo "QEMU_INCLUDES=$QEMU_INCLUDES" >> $config_host_mak
+echo "QEMU_TCI_INCLUDES=$QEMU_TCI_INCLUDES" >> $config_host_mak
 if test "$sparse" = "yes" ; then
   echo "CC           := REAL_CC=\"\$(CC)\" cgcc"       >> $config_host_mak
   echo "CPP          := REAL_CC=\"\$(CPP)\" cgcc"      >> $config_host_mak
@@ -5081,6 +5084,10 @@ case "$target" in
     target_linux_user="yes"
     ;;
   ${target_name}-decree-user)
+    target_user_only="yes"
+    target_decree_user="yes"
+    ;;
+  ${target_name}-decree-user-tci)
     target_user_only="yes"
     target_decree_user="yes"
     ;;

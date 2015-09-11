@@ -81,6 +81,32 @@ def test_replays(name, patched, poll_names, desc, should_core):
 	t = time.time() - begin
 	return True, t
 
+def test_tci_replays(name, patched, poll_names, desc, should_core):
+	cb_paths, cb_names = get_cbs(name, patched)
+	begin = time.time()
+
+	for f in poll_names:
+		replay_options = []
+		for b in cb_names:
+			replay_name = "tmp/replay-%s-%s.replay" % (f, b)
+			replay_options += ["-replay", replay_name]
+
+		p = subprocess.Popen(["i386-decree-user-tci/qemu-decree"] + replay_options + cb_paths,
+				stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+		out, error = p.communicate()
+		if ((should_core and (p.returncode != -signal.SIGSEGV) and (p.returncode != -signal.SIGILL) and
+				(p.returncode != -signal.SIGBUS)) or
+			((not should_core) and (p.returncode < 0))):
+			print "%s: REPLAY FAILED" % desc
+			print "Failed while replaying %s" % f
+			print out
+			print "***** REPLAY FAILED *****"
+			t = time.time() - begin
+			return False, t
+
+	t = time.time() - begin
+	return True, t
+
 def run_poller(name, config):
 	polls = glob.glob("%s/poller/for-%s/*.xml" % (name, config))
 	count = len(polls)
@@ -114,6 +140,12 @@ def run_poller(name, config):
 	if not ok:
 		return False
 	print "%d poll(s) for %s replayed in %.2f seconds" % (count, config, t)
+
+	# Test the replays in interpreted mode
+	ok, t = test_tci_replays(name, False, poll_names, "polls for %s" % config, False)
+	if not ok:
+		return False
+	print "%d poll(s) for %s replayed in %.2f seconds (interpreter)" % (count, config, t)
 
 	return True
 
@@ -159,6 +191,12 @@ def run_pov(name, patched):
 		return False
 	print "%d PoV(s) %s replayed in %.2f seconds" % (count, patchstr, t)
 
+	# Test the replays in interpreted mode
+	ok, t = test_tci_replays(name, patched, poll_names, "PoV(s) %s" % patchstr, not patched)
+	if not ok:
+		return False
+	print "%d PoV(s) %s replayed in %.2f seconds (interpreter)" % (count, patchstr, t)
+
 	return True
 
 def test_cb(name):
@@ -203,9 +241,11 @@ def linux_build():
 		os.unlink(f)
 	if os.path.exists("i386-decree-user"):
 		shutil.rmtree("i386-decree-user")
+	if os.path.exists("i386-decree-user-tci"):
+		shutil.rmtree("i386-decree-user-tci")
 
 	# Build the project with a clean build
-	ok = subprocess.call("./configure --target-list=i386-decree-user --disable-tools --disable-system && make clean && make -j5", shell = True) == 0
+	ok = subprocess.call("./configure --target-list=i386-decree-user,i386-decree-user-tci --disable-tools --disable-system && make clean && make -j5", shell = True) == 0
 	if not ok:
 		print "Build failed, aborting"
 		return False
@@ -219,6 +259,7 @@ def linux_build():
 		z.write("i386-decree-user/qemu-decree", "qemu-decree/qemu-decree")
 		z.write("i386-decree-user/qemu-cb-test", "qemu-decree/qemu-cb-test")
 		z.write("i386-decree-user/qemu_cb_replay.py", "qemu-decree/qemu_cb_replay.py")
+		z.write("i386-decree-user-tci/qemu-decree", "qemu-decree/qemu-decree-tci")
 
 	return do_tests()
 
@@ -231,9 +272,11 @@ def mac_build():
 		os.unlink(f)
 	if os.path.exists("i386-decree-user"):
 		shutil.rmtree("i386-decree-user")
+	if os.path.exists("i386-decree-user-tci"):
+		shutil.rmtree("i386-decree-user-tci")
 
 	# Build the project with a clean build
-	ok = subprocess.call("./configure --target-list=i386-decree-user --disable-tools --disable-system --enable-pie && make clean && make -j5", shell = True) == 0
+	ok = subprocess.call("./configure --target-list=i386-decree-user,i386-decree-user-tci --disable-tools --disable-system --enable-pie && make clean && make -j5", shell = True) == 0
 	if not ok:
 		print "Build failed, aborting"
 		return False
@@ -247,6 +290,7 @@ def mac_build():
 		z.write("i386-decree-user/qemu-decree", "qemu-decree/qemu-decree")
 		z.write("i386-decree-user/qemu-cb-test", "qemu-decree/qemu-cb-test")
 		z.write("i386-decree-user/qemu_cb_replay.py", "qemu-decree/qemu_cb_replay.py")
+		z.write("i386-decree-user-tci/qemu-decree", "qemu-decree/qemu-decree-tci")
 
 	return do_tests()
 
