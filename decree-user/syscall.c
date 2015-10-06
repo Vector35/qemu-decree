@@ -555,6 +555,14 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
             free(data_str);
         }
 
+#if defined(CONFIG_TCG_INTERPRETER)
+        if (!is_error(ret)) {
+            static uint32_t recv_offset = 0;
+            write_mem_tag(env, arg2, ret, DATA_TAG_FROM_INPUT(recv_offset));
+            recv_offset += ret;
+        }
+#endif
+
         len = ret;
         if (!is_error(ret)) {
             if (arg4 && put_user_sal(ret, arg4))

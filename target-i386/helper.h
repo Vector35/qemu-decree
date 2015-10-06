@@ -222,4 +222,5 @@ DEF_HELPER_3(rcrq, tl, env, tl, tl)
 DEF_HELPER_3(prepare_instrumentation, void, env, i64, i64)
 DEF_HELPER_2(instrument_before, void, env, ptr)
 DEF_HELPER_2(instrument_after, void, env, ptr)
+DEF_HELPER_1(flush_regs, void, env)
 #endif

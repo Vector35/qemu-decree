@@ -562,6 +562,7 @@ void init_branch_trace_analysis(void);
 void init_insn_trace_analysis(void);
 void init_mem_trace_analysis(void);
 void init_region_analysis(void);
+void init_security_event_analysis(void);
 
 /* Instrumentation API */
 struct Instruction;
@@ -618,6 +619,11 @@ void remove_memory_read_callback(CPUArchState *env, ReadWriteCallback *cb);
 void remove_memory_write_callback(CPUArchState *env, ReadWriteCallback *cb);
 void notify_memory_read(CPUArchState *env, abi_ulong addr, abi_ulong size, abi_ulong value);
 void notify_memory_write(CPUArchState *env, abi_ulong addr, abi_ulong size, abi_ulong value);
+
+#if defined(CONFIG_TCG_INTERPRETER)
+void notify_invalid_instruction_from_input(CPUArchState *env, DataTag tag);
+void notify_invalid_memory_access_from_input(CPUArchState *env, DataTag tag);
+#endif
 
 #include <pthread.h>
 

@@ -650,4 +650,10 @@ void helper_instrument_after(CPUX86State *env, void *data)
     InsnInstrumentation *instrument = (InsnInstrumentation*)data;
     instrument->after(env, instrument->data, insn_eip, &cur_insn);
 }
+
+void helper_flush_regs(CPUX86State *env)
+{
+    /* Don't need to do anything, this helper is marked such that TCG will automatically
+       flush all globals to memory */
+}
 #endif

@@ -468,6 +468,16 @@ static void QEMU_NORETURN force_sig(int target_sig)
     analysis_output_log(env, "crash", "Crashed with signal %d", target_sig);
     notify_exit(env, target_sig);
 
+#if defined(CONFIG_TCG_INTERPRETER)
+    if (read_env_tag(offsetof(CPUArchState, eip), sizeof(target_ulong)) & DATA_TAG_INPUT) {
+        /* Instruction pointer is derived from input, this event takes priority */
+        notify_invalid_instruction_from_input(env, read_env_tag(offsetof(CPUArchState, eip), sizeof(target_ulong)));
+    } else if ((target_sig == TARGET_SIGSEGV) && (get_mem_addr_tag() & DATA_TAG_INPUT)) {
+        /* SIGSEGV on a memory address that is derived from input */
+        notify_invalid_memory_access_from_input(env, get_mem_addr_tag());
+    }
+ #endif
+
     if (!replay_close(env, target_sig)) {
         /* Replay is in invalid state, send abort signal instead */
         host_sig = SIGABRT;

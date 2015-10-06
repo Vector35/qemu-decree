@@ -7,6 +7,7 @@ include $(SRC_PATH)/rules.mak
 
 ifdef CONFIG_TCG_INTERPRETER
 QEMU_INCLUDES=$(QEMU_TCI_INCLUDES)
+QEMU_CFLAGS += -DCONFIG_TCG_INTERPRETER=1
 endif
 
 $(call set-vpath, $(SRC_PATH))

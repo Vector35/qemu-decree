@@ -641,6 +641,9 @@ int target_munmap(abi_ulong start, abi_ulong len)
         } else {
             ret = munmap(g2h(real_start), real_end - real_start);
         }
+#if defined(CONFIG_TCG_INTERPRETER)
+        free_mem_tags(real_start, real_end - real_start);
+#endif
     }
 
     if (ret == 0) {

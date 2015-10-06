@@ -261,6 +261,7 @@ void init_analysis(void)
     init_insn_trace_analysis();
     init_mem_trace_analysis();
     init_region_analysis();
+    init_security_event_analysis();
 }
 
 int is_analysis_enabled(void)

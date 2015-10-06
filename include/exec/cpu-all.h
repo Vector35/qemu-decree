@@ -322,4 +322,34 @@ void qemu_mutex_unlock_ramlist(void);
 int cpu_memory_rw_debug(CPUState *cpu, target_ulong addr,
                         uint8_t *buf, int len, int is_write);
 
+typedef uint32_t DataTag;
+#define DATA_TAG_INPUT 0x80000000
+#define DATA_TAG_COMPUTED_FROM_INPUT 0xc0000000
+#define DATA_TAG_SENSITIVE_DATA 0x40000000
+#define DATA_TAG_TYPE_MASK 0xc0000000
+#define DATA_TAG_FROM_INPUT(o) (DATA_TAG_INPUT | (o))
+#define DATA_TAG_FROM_SENSITIVE_DATA(o) (DATA_TAG_SENSITIVE_DATA | (o))
+#define DATA_TAG_GET_OFFSET(t) ((t) & 0x0fffffff)
+
+#define DATA_TAG_PAGE_BITS 12
+#define DATA_TAG_PAGE_SIZE (1 << DATA_TAG_PAGE_BITS)
+#define DATA_TAG_PAGE_MASK (DATA_TAG_PAGE_SIZE - 1)
+
+#if defined(CONFIG_TCG_INTERPRETER)
+void set_helper_result_tag(DataTag tag);
+DataTag get_mem_addr_tag(void);
+
+DataTag read_env_tag(long offset, long size);
+void write_env_tag(CPUArchState *env, long offset, long size, DataTag tag);
+#define READ_ENV_FIELD_TAG(field) read_env_tag(offsetof(CPUArchState, field), sizeof(((CPUArchState*)0)->field))
+#define WRITE_ENV_FIELD_TAG(field, tag) write_env_tag(offsetof(CPUArchState, field), sizeof(((CPUArchState*)0)->field), tag)
+
+DataTag read_mem_tag(vaddr addr, long size);
+void write_mem_tag(CPUArchState *env, vaddr addr, long size, DataTag tag);
+void free_mem_tags(vaddr addr, long size);
+
+int is_tracking_data_offsets(void);
+void set_tracking_data_offsets(int track);
+#endif
+
 #endif /* CPU_ALL_H */

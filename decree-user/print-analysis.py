@@ -71,6 +71,30 @@ def handle_log(wall_time, binary_id, insn_count, contents):
 	desc = contents[4+name_len:]
 	print "%s %s: %s" % (prefix, name, desc)
 
+def handle_invalid_instr_from_input(wall_time, binary_id, insn_count, contents):
+	prefix = "[%.6f %d:%.8x]" % (wall_time, binary_id, insn_count)
+	computed = struct.unpack("<B", contents[0])[0] != 0
+	offset_valid = struct.unpack("<B", contents[1])[0] != 0
+	offset = struct.unpack("<I", contents[4:8])[0]
+	if computed:
+		print "%s Invalid eip computed from input" % prefix
+	elif offset_valid:
+		print "%s Invalid eip copied from input offset 0x%x" % (prefix, offset)
+	else:
+		print "%s Invalid eip copied from input"
+
+def handle_invalid_mem_from_input(wall_time, binary_id, insn_count, contents):
+	prefix = "[%.6f %d:%.8x]" % (wall_time, binary_id, insn_count)
+	computed = struct.unpack("<B", contents[0])[0] != 0
+	offset_valid = struct.unpack("<B", contents[1])[0] != 0
+	offset = struct.unpack("<I", contents[4:8])[0]
+	if computed:
+		print "%s Invalid address computed from input" % prefix
+	elif offset_valid:
+		print "%s Invalid address copied from input offset 0x%x" % (prefix, offset)
+	else:
+		print "%s Invalid address copied from input"
+
 event_handler = {}
 event_handler["calltrace_call"] = handle_calltrace_call
 event_handler["calltrace_return"] = handle_calltrace_return
@@ -83,6 +107,8 @@ event_handler["mem_read"] = handle_mem_read
 event_handler["mem_write"] = handle_mem_write
 event_handler["perf"] = handle_perf
 event_handler["log"] = handle_log
+event_handler["invalid_instr_from_input"] = handle_invalid_instr_from_input
+event_handler["invalid_mem_from_input"] = handle_invalid_mem_from_input
 
 def print_analysis(files):
 	global event_handler

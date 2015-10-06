@@ -24,7 +24,9 @@
 
 /* define it to use liveness analysis (better code) */
 #define USE_LIVENESS_ANALYSIS
+#if !defined(CONFIG_TCG_INTERPRETER)
 #define USE_TCG_OPTIMIZATIONS
+#endif
 
 #include "config.h"
 

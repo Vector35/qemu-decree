@@ -1,4 +1,4 @@
 obj-y = main.o syscall.o strace.o mmap.o signal.o \
 	cgcload.o linuxload.o uaccess.o replay.o instrument.o analysis.o \
 	analysis/calltrace.o analysis/branchtrace.o analysis/insntrace.o analysis/region.o \
-	analysis/memtrace.o
+	analysis/memtrace.o analysis/securityevent.o

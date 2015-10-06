@@ -7969,6 +7969,15 @@ static inline int check_instrumentation_filter(CPUX86State *env, InsnInstrumenta
     return instrument->filter(env, instrument->data, pc, &insn);
 }
 
+#if defined(CONFIG_TCG_INTERPRETER)
+static inline void gen_prepare_dataflow(DisasContext *s, abi_ulong pc)
+{
+    /* Ensure CPU state is up to date for dataflow */
+    gen_update_cc_op(s);
+    gen_jmp_im(pc - s->cs_base);
+}
+#endif
+
 static inline void gen_prepare_instrumentation(DisasContext *s, abi_ulong pc)
 {
     /* Ensure CPU state is up to date before calling instrumentation callback */
@@ -8179,6 +8188,12 @@ static inline void gen_intermediate_code_internal(X86CPU *cpu,
         }
 #endif
 
+#if defined(CONFIG_TCG_INTERPRETER)
+        if (!dc->instrumentation_prepared) {
+            gen_prepare_dataflow(dc, pc_ptr);
+        }
+#endif
+
         pc_ptr = disas_insn(env, dc, pc_ptr);
         num_insns++;
 
@@ -8188,6 +8203,9 @@ static inline void gen_intermediate_code_internal(X86CPU *cpu,
 
 #if defined(CONFIG_DECREE_USER)
         gen_insn_retired(dc, 0, dc->pc - dc->cs_base);
+#if defined(CONFIG_TCG_INTERPRETER)
+        gen_helper_flush_regs(cpu_env);
+#endif
 #endif
 
         /* if single step mode, we generate only one instruction and
