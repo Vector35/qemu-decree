@@ -22,6 +22,8 @@
 
 #define X86_ALT_OPERAND_NAMES
 
+#define CGC_MAGIC_PAGE		0x4347c000
+
 #define THREAD __thread
 
 /* This struct is used to hold certain information about the image.

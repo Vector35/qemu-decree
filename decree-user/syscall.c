@@ -302,12 +302,12 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
 
         /* Check for previously valid connections that have been closed */
         if (!fd_valid[arg1]) {
-	        if (limit_closed_fd_ops) {
-		        closed_fd_ops++;
-		        if (closed_fd_ops > MAX_CLOSED_FD_OPS) {
-			        kill(getpid(), SIGALRM);
-		        }
-	        }
+            if (limit_closed_fd_ops) {
+                closed_fd_ops++;
+                if (closed_fd_ops > MAX_CLOSED_FD_OPS) {
+                    kill(getpid(), SIGALRM);
+                }
+            }
 
             ret = -TARGET_EINVAL;
             break;
@@ -415,12 +415,12 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
 
         /* Check for previously valid connections that have been closed */
         if (!fd_valid[arg1]) {
-	        if (limit_closed_fd_ops) {
-		        closed_fd_ops++;
-		        if (closed_fd_ops > MAX_CLOSED_FD_OPS) {
-			        kill(getpid(), SIGALRM);
-		        }
-	        }
+            if (limit_closed_fd_ops) {
+                closed_fd_ops++;
+                if (closed_fd_ops > MAX_CLOSED_FD_OPS) {
+                    kill(getpid(), SIGALRM);
+                }
+            }
 
             /* On receive, closed connections return zero length */
             if (arg4 && put_user_sal(0, arg4))
@@ -464,9 +464,9 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
             }
 
             if ((evt.event_id == REPLAY_EVENT_RECEIVE_EFAULT) && (ret > 0)) {
-	            /* Original execution had a faulting receive with a partially valid buffer.  Read in
-	               the contents of the partial buffer as the return value does not indicate if it was
-	               changed. */
+                /* Original execution had a faulting receive with a partially valid buffer.  Read in
+                   the contents of the partial buffer as the return value does not indicate if it was
+                   changed. */
                 if (!(p = lock_user(VERIFY_WRITE, arg2, ret, 0)))
                     goto efault;
                 memcpy(p, data, ret);
@@ -508,39 +508,39 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 ret = get_errno(read(arg1, p, arg3));
 
             if (ret == -TARGET_EFAULT) {
-	            /* Failure for a bad address, check to see if part of the buffer was accessible. */
-	            abi_long partial_len = 0;
-	            abi_long try_len = 0x1000 - (arg2 & 0xfff);
-	            while (partial_len < arg3) {
-		            if (try_len > arg3)
-			            try_len = arg3;
+                /* Failure for a bad address, check to see if part of the buffer was accessible. */
+                abi_long partial_len = 0;
+                abi_long try_len = 0x1000 - (arg2 & 0xfff);
+                while (partial_len < arg3) {
+                    if (try_len > arg3)
+                        try_len = arg3;
 
-		            if (!(p = lock_user(VERIFY_WRITE, arg2, try_len, 0)))
-			            break;
+                    if (!(p = lock_user(VERIFY_WRITE, arg2, try_len, 0)))
+                        break;
 
-		            unlock_user(p, arg2, 0);
-		            partial_len = try_len;
-		            try_len += 0x1000;
-	            }
+                    unlock_user(p, arg2, 0);
+                    partial_len = try_len;
+                    try_len += 0x1000;
+                }
 
-	            if (partial_len > 0) {
-		            /* There are writable bytes at the provided buffer location.  The kernel may have
-		               written to this location while performing the receive, but we do not know how
-		               many bytes were written as the return value is -EFAULT.  Record the buffer
-		               contents to ensure a correct replay. */
-		            if (!(p = lock_user(VERIFY_WRITE, arg2, partial_len, 0)))
-			            goto efault;
-		            replay_write_event_with_required_data(env, REPLAY_EVENT_RECEIVE_EFAULT, arg1, partial_len, p, partial_len);
-		            unlock_user(p, arg2, 0);
-	            } else {
-		            /* No writable bytes at buffer location, record failure */
-		            replay_write_event(env, REPLAY_EVENT_RECEIVE, arg1, ret);
-	            }
+                if (partial_len > 0) {
+                    /* There are writable bytes at the provided buffer location.  The kernel may have
+                       written to this location while performing the receive, but we do not know how
+                       many bytes were written as the return value is -EFAULT.  Record the buffer
+                       contents to ensure a correct replay. */
+                    if (!(p = lock_user(VERIFY_WRITE, arg2, partial_len, 0)))
+                        goto efault;
+                    replay_write_event_with_required_data(env, REPLAY_EVENT_RECEIVE_EFAULT, arg1, partial_len, p, partial_len);
+                    unlock_user(p, arg2, 0);
+                } else {
+                    /* No writable bytes at buffer location, record failure */
+                    replay_write_event(env, REPLAY_EVENT_RECEIVE, arg1, ret);
+                }
             } else if (ret <= 0) {
-	            /* Failure that is not a bad address, record failure */
+                /* Failure that is not a bad address, record failure */
                 replay_write_event(env, REPLAY_EVENT_RECEIVE, arg1, ret);
             } else {
-	            /* Valid read, record length and contents */
+                /* Valid read, record length and contents */
                 replay_write_event_with_required_data(env, REPLAY_EVENT_RECEIVE, arg1, ret, p, ret);
             }
 
@@ -699,6 +699,12 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
 
     case 6: /* deallocate */
         if (arg2 == 0) {
+            ret = -TARGET_EINVAL;
+        } else if ((arg1 <= CGC_MAGIC_PAGE) && ((arg1 + arg2) > CGC_MAGIC_PAGE)) {
+            /* Don't allow deallocation of magic page */
+            ret = -TARGET_EINVAL;
+        } else if ((arg1 + arg2) < arg1) {
+            /* Address space wraparound */
             ret = -TARGET_EINVAL;
         } else {
             ret = get_errno(target_munmap(arg1, arg2));

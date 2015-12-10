@@ -213,7 +213,7 @@ class Runner(object):
                 return name
         return 'UNKNOWN'
 
-    def start_cb(self, xml_name):
+    def start_cb(self, xml_name, seed = None):
         run_cmd = [os.path.join(os.path.dirname(__file__), 'qemu-decree')]
 
         if self.timeout > 0:
@@ -226,7 +226,10 @@ class Runner(object):
         if self.compact:
             run_cmd += ['-compact']
         if self.optimize_failures:
-	        run_cmd += ['-closeopt']
+            run_cmd += ['-closeopt']
+
+        if seed is not None:
+            run_cmd += ['-seed', seed.encode('hex')]
 
         for cb in self.cb_list:
             if self.directory is None:
@@ -316,8 +319,7 @@ class Runner(object):
         for xml in self.xml_list:
             xml_name = os.path.splitext(os.path.basename(xml))[0]
 
-            cb = self.start_cb(xml_name)
-            replay_result = self.start_replay(cb, xml)
+            cb, replay_result = self.start_replay(lambda seed: self.start_cb(xml_name, seed), xml)
 
             self.passed += replay_result[0]
             self.failed += replay_result[1]

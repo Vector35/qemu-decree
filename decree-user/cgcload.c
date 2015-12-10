@@ -664,6 +664,11 @@ static void load_cgc_image(const char *image_name, int image_fd,
             vaddr_po = TARGET_ELF_PAGEOFFSET(vaddr);
             vaddr_ps = TARGET_ELF_PAGESTART(vaddr);
 
+            if ((eppnt->p_filesz > eppnt->p_memsz) ||
+               ((vaddr_ps >= CGC_MAGIC_PAGE) && ((vaddr_ps + eppnt->p_filesz + vaddr_po) > CGC_MAGIC_PAGE))) {
+                goto exit_perror;
+            }
+
             error = target_mmap(vaddr_ps, eppnt->p_filesz + vaddr_po,
                                 elf_prot, MAP_PRIVATE | MAP_FIXED,
                                 image_fd, eppnt->p_offset - vaddr_po);

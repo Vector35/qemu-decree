@@ -232,8 +232,8 @@ void cpu_loop(CPUX86State *env)
     target_siginfo_t info;
 
     for(;;) {
-	    if (is_replaying())
-		    check_for_replay_timeout(env);
+        if (is_replaying())
+            check_for_replay_timeout(env);
 
         cpu_exec_start(cs);
         trapnr = cpu_x86_exec(env);
@@ -485,12 +485,12 @@ static void handle_arg_analysis_type(const char* arg)
 
 static void handle_arg_randseed(const char *arg)
 {
-    size_t i;
+    size_t i, j;
     int high = 1;
 
     memset(random_seed, 0, sizeof(random_seed));
 
-    for (i = 0; i < 48; ) {
+    for (i = 0, j = 0; j < 48; i++) {
         uint8_t val;
         if ((arg[i] >= '0')  && (arg[i] <= '9')) {
             val = arg[i] - '0';
@@ -504,12 +504,12 @@ static void handle_arg_randseed(const char *arg)
         }
 
         if (high) {
-            random_seed[i] = val << 4;
+            random_seed[j] = val << 4;
             high = 0;
         } else {
-            random_seed[i] |= val;
+            random_seed[j] |= val;
             high = 1;
-            i++;
+            j++;
         }
     }
 }
@@ -875,6 +875,7 @@ int main(int argc, char **argv)
     const char* filename;
     pthread_mutexattr_t attr;
     pthread_condattr_t condattr;
+    abi_ulong error;
 
     signal(SIGPIPE, SIG_IGN);
 
@@ -1190,6 +1191,17 @@ int main(int argc, char **argv)
 
     /* Initialize random generator */
     AES_set_encrypt_key(&random_seed[16], 128, &random_key);
+
+    /* Create and populate CGC magic page */
+    error = target_mmap(CGC_MAGIC_PAGE, 4096, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+    if (error == -1) {
+        perror("mmap magic page");
+        exit(-1);
+    }
+
+    get_random_bytes((uint8_t *) g2h(error), 4096);
+    target_mprotect(error, 4096, PROT_READ);
 
     /* Initialize file descriptor validitity */
     memset(fd_valid, 0, sizeof(fd_valid));

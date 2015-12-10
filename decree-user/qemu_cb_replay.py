@@ -31,24 +31,48 @@ format [1].
 1 - http://testanything.org/
 """
 
+import os
 import argparse
+import multiprocessing
 import signal
 import re
 import struct
 import time
+import zipfile
 import defusedxml.ElementTree as ET
 
 
 class RegexMatch(object):
+    """ Simple wrapper for handling regexes in Throw.
+
+    Attributes:
+        group: which re group to use when extracting data
+        regex: The compiled re to be evaluated
+
+    """
     def __init__(self, regex, group=None):
-        if group == None:
+        if group is None:
             group = 0
 
         self.regex = regex
         self.group = group
 
     def match(self, data):
+        """
+        Match the compiled regular expression
+
+        Arguments:
+            data: Data to match
+
+        Returns:
+            Result of the re.match call
+
+        Raises
+            None
+        """
+
         return self.regex.match(data)
+
 
 class _ValueStr(str):
     """ Wrapper class, used to specify the string is meant to be a 'key' in the
@@ -57,24 +81,31 @@ class _ValueStr(str):
 
 
 class TimeoutException(Exception):
+    """ Exception to be used by Timeout(), to allow catching of timeout
+    exceptions """
     pass
+
 
 class TestFailure(Exception):
+    """ Exception to be used by Throw(), to allow catching of test failures """
     pass
 
-class Timeout:
+
+class Timeout(object):
     """ Timeout - A class to use within 'with' for timing out a block via
     exceptions and alarm."""
 
     def __init__(self, seconds):
         self.seconds = seconds
 
-    def handle_timeout(self, signum, frame):
+    @staticmethod
+    def cb_handle_timeout(signum, frame):
+        """ SIGALRM signal handler callback """
         raise TimeoutException("timed out")
 
     def __enter__(self):
         if self.seconds:
-            signal.signal(signal.SIGALRM, self.handle_timeout)
+            signal.signal(signal.SIGALRM, self.cb_handle_timeout)
             signal.alarm(self.seconds)
 
     def __exit__(self, exit_type, exit_value, traceback):
@@ -89,7 +120,7 @@ class Throw(object):
     the interaction works as expected.
 
     Usage:
-        a = Throw(cb, POV, should_debug)
+        a = Throw(cb, POV, should_debug, negotiate)
         a.run()
 
     Attributes:
@@ -106,8 +137,12 @@ class Throw(object):
         pov: POV, as defined by POV()
 
         values: Variable dictionary
+
+        logs: all of the output from the interactions
+
+        negotiate: Should the CB negotation process happen
     """
-    def __init__(self, cb, pov, debug):
+    def __init__(self, cb, pov, debug, negotiate):
         self.cb = cb
         self.count = 0
         self.failed = 0
@@ -115,6 +150,9 @@ class Throw(object):
         self.pov = pov
         self.debug = debug
         self.values = {}
+        self.logs = []
+        self._read_buffer = ''
+        self.negotiate = negotiate
 
     def is_ok(self, expected, result, message):
         """ Verifies 'expected' is equal to 'result', logging results in TAP
@@ -212,7 +250,7 @@ class Throw(object):
         self.passed += 1
         self.count += 1
         if self.debug:
-            print "ok %d - %s" % (self.count, message)
+            self.logs.append("ok %d - %s" % (self.count, message))
 
     def log_fail(self, message):
         """ Log a test that failed in the TAP format
@@ -229,11 +267,10 @@ class Throw(object):
         self.failed += 1
         self.count += 1
         if self.debug:
-            print "not ok %d - %s" % (self.count, message)
+            self.logs.append("not ok %d - %s" % (self.count, message))
         raise TestFailure('failed: %s' % message)
 
-    @staticmethod
-    def log(message):
+    def log(self, message):
         """ Log diagnostic information in the TAP format
 
         Args:
@@ -245,7 +282,7 @@ class Throw(object):
         Raises:
             None
         """
-        print "# %s" % message
+        self.logs.append("# %s" % message)
 
     def sleep(self, value):
         """ Sleep a specified amount
@@ -276,7 +313,9 @@ class Throw(object):
             None
         """
         self.values.update(values)
-        self.log_ok("set values: %s" % ', '.join(map(repr, values.keys())))
+
+        set_values = [repr(x) for x in values.keys()]
+        self.log_ok("set values: %s" % ', '.join(set_values))
 
     def _perform_match(self, match, data, invert=False):
         """ Validate the data read from the CB is as expected
@@ -361,6 +400,49 @@ class Throw(object):
                 self.log('set %s to %s' % (key, value.encode('hex')))
             self.log_ok('set %s' % (key))
 
+    def _read_len(self, read_len):
+        """
+        Read a specified size, but only ever get 4096 bytes from the socket
+        """
+        if len(self._read_buffer) >= read_len:
+            data = self._read_buffer[:read_len]
+            self._read_buffer = self._read_buffer[read_len:]
+            return data
+
+        data = [self._read_buffer]
+        data_len = len(self._read_buffer)
+        while data_len < read_len:
+            left = read_len - data_len
+            data_read = os.read(self.cb.stdout.fileno(), max(4096, left))
+            if len(data_read) == 0:
+                self.log_fail('recv failed. (%s so far)' % repr(data))
+                self._read_buffer = ''.join(data)
+                return ''
+
+            data.append(data_read)
+            data_len += len(data_read)
+
+        data = ''.join(data)
+        self._read_buffer = data[read_len:]
+        return data[:read_len]
+
+    def _read_delim(self, delim):
+        """
+        Read until a delimiter is found, but only ever get 4096 bytes from the
+        socket
+        """
+        while delim not in self._read_buffer:
+            data_read = os.read(self.cb.stdout.fileno(), 4096)
+            if len(data_read) == 0:
+                self.log_fail('recv failed.  No data returned.')
+                return ''
+            self._read_buffer += data_read
+
+        depth = self._read_buffer.index(delim) + len(delim)
+        data = self._read_buffer[:depth]
+        self._read_buffer = self._read_buffer[depth:]
+        return data
+
     def read(self, read_args):
         """ Read data from the CB, validating the results
 
@@ -373,31 +455,15 @@ class Throw(object):
         Raises:
             Exception: if 'expr' argument is provided and 'assign' is not
         """
-
         data = ''
         try:
             if 'length' in read_args:
-                data_array = []
-                data_len = 0
-                while data_len < read_args['length']:
-                    left = read_args['length'] - data_len
-                    data_read = self.cb.stdout.read(left)
-                    if len(data_read) == 0:
-                        self.log_fail('recv failed')
-                        break
-                    data_array.append(data_read)
-                    data_len += len(data_read)
-                data = ''.join(data_array)
-                self.is_ok(read_args['length'], len(data), 'bytes received')
+                data = self._read_len(read_args['length'])
+                self.is_ok(read_args['length'], len(data), 'read length')
             elif 'delim' in read_args:
-                while not data.endswith(read_args['delim']):
-                    val = self.cb.stdout.read(1)
-                    if len(val) != 1:
-                        self.log_fail("recv failed")
-                        break
-                    data += val
-        except IOError:
-            self.log_fail('recv failed')
+                data = self._read_delim(read_args['delim'])
+        except IOError as err:
+            self.log_fail('recv failed: %s' % str(err))
 
         if 'echo' in read_args and self.debug:
             assert read_args['echo'] in ['yes', 'no', 'ascii']
@@ -414,6 +480,11 @@ class Throw(object):
         if 'expr' in read_args:
             assert 'assign' in read_args
             self._perform_expr(read_args['expr'], read_args['assign'], data)
+
+    def _send_all(self, data):
+        self.cb.stdin.write(data)
+        self.cb.stdin.flush()
+        return len(data)
 
     def write(self, args):
         """ Write data to the CB
@@ -445,11 +516,75 @@ class Throw(object):
                 self.log('writing: %s' % repr(to_send))
 
         try:
-            self.cb.stdin.write(to_send)
-            self.cb.stdin.flush()
-            self.log_ok('write: sent %d bytes' % len(to_send))
+            sent = self._send_all(to_send)
+            if sent != len(to_send):
+                self.log_fail('write failed.  wrote %d of %d bytes' %
+                              (sent, len(to_send)))
+                return
+            else:
+                self.log_ok('write: sent %d bytes' % sent)
         except IOError:
             self.log_fail('write failed')
+
+    def _encode(self, records):
+        """
+            record is a list of records in the format (type, data)
+
+            Current wire format:
+            RECORD_COUNT (DWORD)
+                record_0_type (DWORD)
+                record_0_len (DWORD)
+                record_0_data (record_0_len bytes)
+                record_N_type (DWORD)
+                record_N_len (DWORD)
+                record_N_data (record_N_len bytes)
+        """
+
+        packed = []
+        for record_type, data in records:
+            packed.append(struct.pack('<LL', record_type, len(data)) + data)
+
+        result = struct.pack('<L', len(packed)) + ''.join(packed)
+        return result
+        
+    def cb_negotiate(self):
+        """ Prior to starting the POV comms, setup the seeds with the CB server
+
+        Args:
+            None
+
+        Returns:
+            None
+
+        Raises:
+            None
+        """
+    
+        if not self.negotiate:
+            return 0
+       
+        seed = self.pov.seed
+
+        if seed is None:
+            print "# No seed specified, using random seed"
+            seed = os.urandom(48)
+
+        print "# negotiating seed as %s" % seed.encode('hex')
+
+        request_seed = (1, seed)
+        request = [request_seed]
+        encoded = self._encode(request)
+        sent = self._send_all(encoded)
+        if sent != len(encoded):
+            self.log_fail('negotiate failed.  expected to send %d, sent %d' % (len(encoded), sent))
+            return -1
+
+        response_packed = self._read_len(4)
+        response = struct.unpack('<L', response_packed)[0]
+        if response != 1:
+            return -1
+
+        return 0
 
     def run(self):
         """ Iteratively execute each of the actions within the POV
@@ -464,12 +599,19 @@ class Throw(object):
             AssertionError: if a POV action is not in the pre-defined methods
         """
 
+        if self.debug:
+            self.log('%s - %s' % (self.pov.name, self.pov.filename))
+
         methods = {
             'sleep': self.sleep,
             'declare': self.declare,
             'read': self.read,
             'write': self.write,
         }
+
+        if self.cb_negotiate() != 0:
+            self.log_fail('negotation failed')
+            return
 
         for method, arguments in self.pov:
             assert method in methods, "%s not in methods" % method
@@ -495,8 +637,9 @@ class Throw(object):
             self.log("variables at end of interaction: ")
             for key in self.values:
                 self.log("%s : %s" % (repr(key), repr(self.values[key])))
-        self.log('tests passed: %d' % self.passed)
-        self.log('tests failed: %d' % self.failed)
+        if self.debug:
+            self.log('tests passed: %d' % self.passed)
+            self.log('tests failed: %d' % self.failed)
 
 
 class POV(object):
@@ -519,11 +662,13 @@ class POV(object):
 
         _variables:  List of variables used during CB interaction
     """
-    def __init__(self):
+    def __init__(self, seed=None):
         self.filename = None
         self.name = None
         self._steps = []
         self._variables = []
+
+        self.seed = seed
 
     def __iter__(self):
         """ Iterate over iteractions in a POV
@@ -1020,13 +1165,30 @@ class POV(object):
 
         tree = ET.fromstring(raw_data)
         assert tree.tag == 'pov'
-        assert len(tree) == 2
+        assert len(tree) in [2, 3]
 
         assert tree[0].tag == 'cbid'
         assert len(tree[0].tag) > 0
         self.name = tree[0].text
 
-        assert tree[1].tag == 'replay'
+        assert tree[1].tag in ['seed', 'replay']
+
+        seed_tree = None
+        replay_tree = None
+        if tree[1].tag == 'seed':
+            seed_tree = tree[1]
+            replay_tree = tree[2]
+        else:
+            seed_tree = None
+            replay_tree = tree[1]
+
+        if seed_tree is not None:
+            assert len(seed_tree.tag) > 0
+            seed = seed_tree.text
+            assert len(seed) == 96
+            if self.seed is not None:
+                print "# Seed is set by XML and command line, using XML seed"
+            self.seed = seed.decode('hex')
 
         parse_fields = {
             'decl': self.parse_decl,
@@ -1035,7 +1197,7 @@ class POV(object):
             'delay': self.parse_delay,
         }
 
-        for replay_element in tree[1]:
+        for replay_element in replay_tree:
             assert replay_element.tag in parse_fields
             parse_fields[replay_element.tag](replay_element)
 
@@ -1055,55 +1217,114 @@ class POV(object):
             print repr(step)
 
 
-def throw(cb, pov_filename, timeout, debug):
-    """ Parse and Throw the POVs """
+class Results(object):
+    """ Class to handle gathering result stats from Throw() instances """
+    def __init__(self):
+        self.passed = 0
+        self.failed = 0
+        self.errors = 0
+        self.full_passed = 0
 
-    passed = 0
-    failed = 0
-    errors = 0
-    full_passed = 0
-    povs = []
+    def cb_pov_result(self, results):
+        """
+        Throw() result callback
 
-    pov_xml = None
-    with open(pov_filename, 'rb') as pov_fh:
-        pov_xml = pov_fh.read()
+        Arguments:
+            results: tuple containing the number of results passed, failed, and
+                a list of logs
 
-    # Limit POV/Poll parsing to 30 seconds each
+        Returns:
+            None
+
+        Raises:
+            None
+        """
+        got_passed, got_failed, got_logs = results
+        if len(got_logs) > 0:
+            print '\n'.join(got_logs)
+        self.passed += got_passed
+        self.failed += got_failed
+        if got_failed > 0:
+            self.errors += 1
+        else:
+            self.full_passed += 1
+
+def init_worker():
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+def run_pov(start_cb, pov_info, timeout, debug, negotiate, cb_seed):
+    """
+    Parse and Throw a POV/Poll
+
+    Arguments:
+        start_cb: function to start CB process object
+        pov_info: content/filename tuple of the POV
+        timeout: How long the POV communication is allowed to take
+        debug: Flag to enable debug logs
+        negotiate: Should the poller negotiate with cb-server
+
+    Returns:
+        The number of passed tests
+        The number of failed tests
+        A list containing the logs
+
+    Raises:
+        Exception if parsing the POV times out
+    """
+
+    xml, filename = pov_info
+    pov = POV(seed=cb_seed)
+    error = None
     try:
         with Timeout(30):
-            pov = POV()
-            pov.parse(pov_xml, filename=pov_filename)
-            povs.append(pov)
+            pov.parse(xml, filename=filename)
     except TimeoutException:
-        raise Exception("parsing %s timed out" % pov_filename)
+        error = "parsing %s timed out" % filename
+    except ET.ParseError as err:
+        error = "parsing %s errored: %s" % (filename, str(err))
 
-    if debug:
-        print '# %s - %s' % (pov.name, pov.filename)
-    thrower = Throw(cb, pov, debug)
+    cb = start_cb(pov.seed)
 
-    if timeout > 0:
+    thrower = Throw(cb, pov, debug, negotiate)
+    if error is not None:
+        try:
+            thrower.log_fail(error)
+        except TestFailure:
+            pass # log_fail throws an exception on purpose
+    else:
         try:
             with Timeout(timeout):
                 thrower.run()
         except TimeoutException:
-            thrower.log_fail("pov timed out")
-    else:
-        thrower.run()
-
-    cb.stdin.close()
-    cb.stdout.close()
-
-    if debug:
+            try:
+                thrower.log_fail('pov timed out')
+            except TestFailure:
+                # this exception should always happen.  don't stop because
+                # one timed out.
+                pass 
         thrower.dump()
-    passed += thrower.passed
-    failed += thrower.failed
-    if thrower.failed > 0:
-        errors += 1
-    else:
-        full_passed += 1
 
-    return (passed, failed, full_passed, errors)
+	cb.stdin.close()
+	cb.stdout.close()
+    return cb, (thrower.passed, thrower.failed, thrower.logs)
+
+
+def throw(start_cb, pov_filename, timeout, debug, negotiate = False, cb_seed = None):
+    """ Parse and Throw the POVs """
+    if cb_seed is not None and not negotiate:
+        raise Exception('CB Seeds can only be set with seed negotation')
+
+    xml = None
+    with open(pov_filename, 'rb') as pov_fh:
+        xml = pov_fh.read()
+
+    result_handler = Results()
+    cb, result = run_pov(start_cb, (xml, pov_filename), timeout, debug, negotiate, cb_seed)
+    result_handler.cb_pov_result(result)
+
+    return (cb, (result_handler.passed, result_handler.failed, result_handler.full_passed, result_handler.errors))
 
 if __name__ == "__main__":
-    print "This program is not intended to be run directly.  Use qemu-cb-test or cb-replay."
+    print "This program is not intended to be run directly.  Use qemu-cb-test or cb-reply."
     exit(1)
+
