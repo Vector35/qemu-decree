@@ -1028,45 +1028,11 @@ int is_pov_process(void)
     return is_pov;
 }
 
-int main(int argc, char **argv)
+static void init_shared_region(void)
 {
-    struct target_pt_regs regs1, *regs = &regs1;
-    struct image_info info1, *info = &info1;
-    struct linux_binprm bprm;
-    TaskState *ts;
-    CPUArchState *env;
-    CPUState *cpu;
-    int optind;
-    int ret, exit_status;
     int i;
-    pid_t* children;
-    int* ipc_sockets = NULL;
-    int is_parent;
-    const char* filename;
     pthread_mutexattr_t attr;
     pthread_condattr_t condattr;
-    abi_ulong error;
-
-    signal(SIGPIPE, SIG_IGN);
-
-    module_call_init(MODULE_INIT_QOM);
-
-    cpu_model = NULL;
-#if defined(cpudef_setup)
-    cpudef_setup(); /* parse cpu definitions in target config file (TBD) */
-#endif
-
-    init_analysis();
-
-    srand(time(NULL));
-    for (i = 0; i < 48; i++)
-        random_seed[i] = (uint8_t)rand();
-    for (i = 0; i < 48; i++)
-        pov_random_seed[i] = (uint8_t)rand();
-    for (i = 0; i < 48; i++)
-        negotiate_random_seed[i] = (uint8_t)rand();
-
-    optind = parse_args(argc, argv);
 
     /* Allocate shared memory for communicating across binaries */
 #ifdef MAP_HASSEMAPHORE
@@ -1112,6 +1078,47 @@ int main(int argc, char **argv)
     pthread_condattr_init(&condattr);
     pthread_condattr_setpshared(&condattr, PTHREAD_PROCESS_SHARED);
     pthread_cond_init(&shared->syscall_ordering_cond, &condattr);
+}
+
+int main(int argc, char **argv)
+{
+    struct target_pt_regs regs1, *regs = &regs1;
+    struct image_info info1, *info = &info1;
+    struct linux_binprm bprm;
+    TaskState *ts;
+    CPUArchState *env;
+    CPUState *cpu;
+    int optind;
+    int ret, exit_status;
+    int i;
+    pid_t* children;
+    int* ipc_sockets = NULL;
+    int is_parent;
+    const char* filename;
+    abi_ulong error;
+
+    signal(SIGPIPE, SIG_IGN);
+
+    module_call_init(MODULE_INIT_QOM);
+
+    cpu_model = NULL;
+#if defined(cpudef_setup)
+    cpudef_setup(); /* parse cpu definitions in target config file (TBD) */
+#endif
+
+    init_analysis();
+
+    srand(time(NULL));
+    for (i = 0; i < 48; i++)
+        random_seed[i] = (uint8_t)rand();
+    for (i = 0; i < 48; i++)
+        pov_random_seed[i] = (uint8_t)rand();
+    for (i = 0; i < 48; i++)
+        negotiate_random_seed[i] = (uint8_t)rand();
+
+    optind = parse_args(argc, argv);
+
+    init_shared_region();
 
     /* For multi-executable challenge binaries, we need to set up the IPC socket pairs.
        Each executable has a socket pair associated with it, starting at descriptor 3. */
@@ -1285,8 +1292,12 @@ int main(int argc, char **argv)
                 binary_index = 0;
                 binary_count = 1;
                 is_pov = 1;
+                record_replay_flags |= REPLAY_FLAG_POV;
                 filename = pov_name;
                 open_and_load_file(filename, regs, info, &bprm);
+
+                /* Reinitialize the shared region so that CB replays are not impacted by the PoV replay */
+                init_shared_region();
             }
         }
 
@@ -1396,9 +1407,16 @@ int main(int argc, char **argv)
         char* binary_path = strdup(filename);
         char* binary_basename = basename(binary_path);
 
-        if (asprintf(&replay_filename, "%s-%s.replay", record_replay_name, binary_basename) < 0) {
-            fprintf(stderr, "Invalid replay file name\n");
-            _exit(1);
+        if (is_pov) {
+            if (asprintf(&replay_filename, "%s.pov.replay", record_replay_name) < 0) {
+                fprintf(stderr, "Invalid replay file name\n");
+                _exit(1);
+            }
+        } else {
+            if (asprintf(&replay_filename, "%s-%s.replay", record_replay_name, binary_basename) < 0) {
+                fprintf(stderr, "Invalid replay file name\n");
+                _exit(1);
+            }
         }
 
         free(binary_path);
@@ -1418,6 +1436,7 @@ int main(int argc, char **argv)
 
         /* Set options from header flags */
         limit_closed_fd_ops = ((get_replay_flags() & REPLAY_FLAG_LIMIT_CLOSED_FD_LOOP) != 0);
+        is_pov = ((get_replay_flags() & REPLAY_FLAG_POV) != 0);
     }
 
     if (analysis_output_name) {
