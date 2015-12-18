@@ -22,7 +22,7 @@
 
 #define X86_ALT_OPERAND_NAMES
 
-#define CGC_MAGIC_PAGE		0x4347c000
+#define CGC_MAGIC_PAGE        0x4347c000
 
 #define THREAD __thread
 
@@ -52,7 +52,7 @@ struct image_info {
         abi_ulong       arg_start;
         abi_ulong       arg_end;
         uint32_t        elf_flags;
-	int		personality;
+    int        personality;
 #ifdef CONFIG_USE_FDPIC
         abi_ulong       loadmap_addr;
         uint16_t        nsegs;
@@ -160,6 +160,13 @@ struct shared_data {
        can work across binary boundaries. */
     pthread_mutex_t syscall_ordering_mutex;
     pthread_cond_t syscall_ordering_cond;
+
+    /* Type 1 PoV negotation state */
+    int pov_type_1_active;
+    int pov_reg_index;
+    uint32_t pov_ip_mask, pov_reg_mask;
+    uint32_t pov_ip_expected_value, pov_reg_expected_value;
+    int pov_valid;
 };
 
 extern struct shared_data *shared;
@@ -175,7 +182,7 @@ extern struct shared_data *shared;
 struct linux_binprm {
     char buf[BPRM_BUF_SIZE] __attribute__((aligned));
     abi_ulong p;
-	int fd;
+    int fd;
     int e_uid, e_gid;
     char * filename;        /* Name of binary */
     int (*core_dump)(int, const CPUArchState *); /* coredump routine */
@@ -262,6 +269,8 @@ void cpu_list_unlock(void);
 
 int is_valid_guest_fd(int fd);
 
+int is_pov_process(void);
+
 /* user access */
 
 #define VERIFY_READ 0
@@ -312,33 +321,33 @@ static inline int access_ok(int type, abi_ulong addr, abi_ulong size)
  * that has been passed by address.  These internally perform locking
  * and unlocking on the data type.
  */
-#define put_user(x, gaddr, target_type)					\
-({									\
-    abi_ulong __gaddr = (gaddr);					\
-    target_type *__hptr;						\
-    abi_long __ret = 0;							\
+#define put_user(x, gaddr, target_type)                    \
+({                                    \
+    abi_ulong __gaddr = (gaddr);                    \
+    target_type *__hptr;                        \
+    abi_long __ret = 0;                            \
     if ((__hptr = lock_user(VERIFY_WRITE, __gaddr, sizeof(target_type), 0))) { \
-        __put_user((x), __hptr);				\
-        unlock_user(__hptr, __gaddr, sizeof(target_type));		\
-    } else								\
-        __ret = -TARGET_EFAULT;						\
-    __ret;								\
+        __put_user((x), __hptr);                \
+        unlock_user(__hptr, __gaddr, sizeof(target_type));        \
+    } else                                \
+        __ret = -TARGET_EFAULT;                        \
+    __ret;                                \
 })
 
-#define get_user(x, gaddr, target_type)					\
-({									\
-    abi_ulong __gaddr = (gaddr);					\
-    target_type *__hptr;						\
-    abi_long __ret = 0;							\
+#define get_user(x, gaddr, target_type)                    \
+({                                    \
+    abi_ulong __gaddr = (gaddr);                    \
+    target_type *__hptr;                        \
+    abi_long __ret = 0;                            \
     if ((__hptr = lock_user(VERIFY_READ, __gaddr, sizeof(target_type), 1))) { \
-        __get_user((x), __hptr);				\
-        unlock_user(__hptr, __gaddr, 0);				\
-    } else {								\
-        /* avoid warning */						\
-        (x) = 0;							\
-        __ret = -TARGET_EFAULT;						\
-    }									\
-    __ret;								\
+        __get_user((x), __hptr);                \
+        unlock_user(__hptr, __gaddr, 0);                \
+    } else {                                \
+        /* avoid warning */                        \
+        (x) = 0;                            \
+        __ret = -TARGET_EFAULT;                        \
+    }                                    \
+    __ret;                                \
 })
 
 #define put_user_ual(x, gaddr) put_user((x), (gaddr), abi_ulong)
@@ -430,9 +439,9 @@ static inline void *lock_user_string(abi_ulong guest_addr)
 }
 
 /* Helper macros for locking/unlocking a target struct.  */
-#define lock_user_struct(type, host_ptr, guest_addr, copy)	\
+#define lock_user_struct(type, host_ptr, guest_addr, copy)    \
     (host_ptr = lock_user(type, guest_addr, sizeof(*host_ptr), copy))
-#define unlock_user_struct(host_ptr, guest_addr, copy)		\
+#define unlock_user_struct(host_ptr, guest_addr, copy)        \
     unlock_user(host_ptr, guest_addr, (copy) ? sizeof(*host_ptr) : 0)
 
 /* Record/replay functions */

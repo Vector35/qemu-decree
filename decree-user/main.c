@@ -83,6 +83,14 @@ int closed_fd_ops = 0;
 
 static char* analysis_output_name = NULL;
 
+static uint8_t pov_random_seed[48];
+static uint8_t negotiate_random_seed[48];
+static char* pov_name = NULL;
+static int is_pov = 0;
+static pid_t pov_pid;
+static int pov_pipes[4];
+static int pov_negotiate_sockets[2];
+
 struct shared_data *shared = NULL;
 
 static void usage(void);
@@ -483,12 +491,12 @@ static void handle_arg_analysis_type(const char* arg)
     add_pending_analysis(arg);
 }
 
-static void handle_arg_randseed(const char *arg)
+static void parse_randseed(uint8_t *seed, const char *arg)
 {
     size_t i, j;
     int high = 1;
 
-    memset(random_seed, 0, sizeof(random_seed));
+    memset(seed, 0, 48);
 
     for (i = 0, j = 0; j < 48; i++) {
         uint8_t val;
@@ -504,14 +512,34 @@ static void handle_arg_randseed(const char *arg)
         }
 
         if (high) {
-            random_seed[j] = val << 4;
+            seed[j] = val << 4;
             high = 0;
         } else {
-            random_seed[j] |= val;
+            seed[j] |= val;
             high = 1;
             j++;
         }
     }
+}
+
+static void handle_arg_randseed(const char *arg)
+{
+    parse_randseed(random_seed, arg);
+}
+
+static void handle_arg_pov(const char* arg)
+{
+    pov_name = strdup(arg);
+}
+
+static void handle_arg_pov_randseed(const char *arg)
+{
+    parse_randseed(pov_random_seed, arg);
+}
+
+static void handle_arg_negotiate_randseed(const char *arg)
+{
+    parse_randseed(negotiate_random_seed, arg);
 }
 
 static void handle_arg_maxrecv(const char* arg)
@@ -654,11 +682,17 @@ static const struct qemu_argument arg_table[] = {
     {"strace",     "QEMU_STRACE",      false, handle_arg_strace,
      "",           "log system calls"},
     {"seed",       "QEMU_RAND_SEED",   true,  handle_arg_randseed,
-     "",           "Seed for pseudo-random number generator"},
+     "",           "Seed for pseudo-random number generator in CB"},
     {"maxrecv",    "QEMU_MAX_RECV",    true,  handle_arg_maxrecv,
      "",           "Maximum bytes to receive in one call (for debug)"},
     {"closeopt",   "QEMU_CLOSE_OPT",   false, handle_arg_closeopt,
      "",           "Limit reads/writes to closed handles"},
+    {"pov",        "QEMU_POV",         true,  handle_arg_pov,
+     "",           "Exceute PoV binary"},
+    {"povseed",    "QEMU_POV_RAND_SEED", true,  handle_arg_pov_randseed,
+     "",           "Seed for pseudo-random number generator in PoV"},
+    {"negseed",    "QEMU_NEG_RAND_SEED", true,  handle_arg_negotiate_randseed,
+     "",           "Seed for pseudo-random number generator in PoV negotiation"},
     {"version",    "QEMU_VERSION",     false, handle_arg_version,
      "",           "display version information and exit"},
     {NULL, NULL, false, NULL, NULL, NULL}
@@ -806,6 +840,8 @@ int is_valid_guest_fd(int fd)
         return 0;
     if (fd <= 2) /* stdin/stdout/stderr are always valid */
         return 1;
+    if (is_pov && (fd == 3)) /* 3 is negotiation socket in PoV */
+        return 1;
     if (binary_count <= 1) /* If single binary, only stdin/stdout/stderr are valid */
         return 0;
     if (fd <= (4 + 2 * binary_count)) /* For multi-binary, allow socket pairs */
@@ -858,6 +894,140 @@ void get_random_bytes(uint8_t* out, size_t len)
     }
 }
 
+static int read_all(int s, void *buf, size_t len)
+{
+    while (len > 0) {
+        ssize_t result = read(s, buf, len);
+        if ((result < 0) && (errno == EINTR))
+            continue;
+        if (result <= 0)
+            return -1;
+        buf = (char*)buf + result;
+        len -= result;
+    }
+    return 0;
+}
+
+static int write_all(int s, const void *buf, size_t len)
+{
+    while (len > 0) {
+        ssize_t result = write(s, buf, len);
+        if ((result < 0) && (errno == EINTR))
+            continue;
+        if (result <= 0)
+            return -1;
+        buf = (const char*)buf + result;
+        len -= result;
+    }
+    return 0;
+}
+
+static int count_bits(int value)
+{
+    int i, count;
+    for (i = 0, count = 0; i < 32; i++) {
+        if (value & (1 << i))
+            count++;
+    }
+    return count;
+}
+
+static int negotiate_pov(int s)
+{
+    int type, secret, i;
+    int data[3];
+    uint8_t secret_page[4096];
+
+    shared->pov_valid = 0;
+
+    if (read_all(s, &type, sizeof(type)) != 0) {
+        fprintf(stderr, "PoV negotiation failed: did not receive type\n");
+        return 0;
+    }
+
+    if (type == 1) {
+        static const char *reg_names[8] = {"eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi"};
+
+        fprintf(stderr, "PoV negotiating type 1\n");
+
+        if (read_all(s, data, sizeof(int) * 3) != 0) {
+            fprintf(stderr, "PoV negotiation failed: did not receive register and masks\n");
+            return 0;
+        }
+
+        if (count_bits(data[0]) < 20) {
+            fprintf(stderr, "PoV negotiation failed: IP mask %.8x did not have at least 20 bits set\n", data[0]);
+            return 0;
+        }
+        if (count_bits(data[1]) < 20) {
+            fprintf(stderr, "PoV negotiation failed: register mask %.8x did not have at least 20 bits set\n", data[0]);
+            return 0;
+        }
+        if ((data[2] < 0) || (data[2] >= 8)) {
+            fprintf(stderr, "PoV negotiation failed: invalid target register\n");
+            return 0;
+        }
+
+        fprintf(stderr, "PoV using IP mask %.8x and register %s with mask %.8x\n", data[0], reg_names[data[2]], data[1]);
+        shared->pov_ip_mask = data[0];
+        shared->pov_reg_mask = data[1];
+        shared->pov_reg_index = data[2];
+
+        AES_set_encrypt_key(&negotiate_random_seed[16], 128, &random_key);
+        get_random_bytes((uint8_t*)data, sizeof(int) * 2);
+
+        data[0] &= shared->pov_ip_mask;
+        data[1] &= shared->pov_reg_mask;
+        shared->pov_ip_expected_value = data[0];
+        shared->pov_reg_expected_value = data[1];
+        shared->pov_type_1_active = 1;
+
+        if (write_all(s, data, sizeof(int) * 2) != 0) {
+            fprintf(stderr, "PoV negotiation failed: send error\n");
+            return 0;
+        }
+
+        return 1;
+    } else if (type == 2) {
+        fprintf(stderr, "PoV negotiating type 2\n");
+        data[0] = CGC_MAGIC_PAGE;
+        data[1] = 0x1000;
+        data[2] = 4;
+        if (write_all(s, data, sizeof(int) * 3) != 0) {
+            fprintf(stderr, "PoV negotiation failed: send error\n");
+            return 0;
+        }
+
+        if (read_all(s, &secret, sizeof(secret)) != 0) {
+            fprintf(stderr, "PoV negotiation failed: did not receive secret\n");
+        }
+
+        fprintf(stderr, "PoV reports secret value %.8x\n", secret);
+
+        AES_set_encrypt_key(&random_seed[16], 128, &random_key);
+        get_random_bytes(secret_page, 4096);
+
+        for (i = 0; i <= (4096 - 4); i++) {
+            if (*((int*)(&secret_page[i])) == secret) {
+                fprintf(stderr, "PoV type 2 verified\n");
+                shared->pov_valid = 1;
+                return 1;
+            }
+        }
+
+        fprintf(stderr, "PoV negotiation failed: secret value not valid\n");
+    } else {
+        fprintf(stderr, "PoV negotiation failed: invalid PoV type requested\n");
+    }
+
+    return 0;
+}
+
+int is_pov_process(void)
+{
+    return is_pov;
+}
+
 int main(int argc, char **argv)
 {
     struct target_pt_regs regs1, *regs = &regs1;
@@ -891,6 +1061,10 @@ int main(int argc, char **argv)
     srand(time(NULL));
     for (i = 0; i < 48; i++)
         random_seed[i] = (uint8_t)rand();
+    for (i = 0; i < 48; i++)
+        pov_random_seed[i] = (uint8_t)rand();
+    for (i = 0; i < 48; i++)
+        negotiate_random_seed[i] = (uint8_t)rand();
 
     optind = parse_args(argc, argv);
 
@@ -950,6 +1124,22 @@ int main(int argc, char **argv)
                 fprintf(stderr, "Unable to create socket pair for IPC\n");
                 _exit(1);
             }
+        }
+    }
+
+    /* If running a PoV, create a socket for communication between the PoV and the CB */
+    if (pov_name != NULL) {
+        if (pipe(pov_pipes) < 0) {
+            fprintf(stderr, "Unable to create pipe for PoV\n");
+            _exit(1);
+        }
+        if (pipe(&pov_pipes[2]) < 0) {
+            fprintf(stderr, "Unable to create pipe for PoV\n");
+            _exit(1);
+        }
+        if (socketpair(AF_UNIX, SOCK_STREAM, 0, pov_negotiate_sockets) < 0) {
+            fprintf(stderr, "Unable to create socket pair for PoV negotiation\n");
+            _exit(1);
         }
     }
 
@@ -1066,7 +1256,7 @@ int main(int argc, char **argv)
        all running binaries to have a common reference point. */
     shared->base_wall_time = get_physical_wall_time();
 
-    if (binary_count == 1) {
+    if ((binary_count == 1) && (pov_name == NULL)) {
         binary_index = 0;
         filename = argv[optind];
         open_and_load_file(filename, regs, info, &bprm);
@@ -1088,11 +1278,37 @@ int main(int argc, char **argv)
             }
         }
 
+        if (is_parent && (pov_name != NULL)) {
+            pov_pid = fork();
+            if (pov_pid == 0) {
+                is_parent = 0;
+                binary_index = 0;
+                binary_count = 1;
+                is_pov = 1;
+                filename = pov_name;
+                open_and_load_file(filename, regs, info, &bprm);
+            }
+        }
+
         if (is_parent) {
             /* Close IPC sockets on parent so that children can terminate cleanly */
-            for (i = 0; i < binary_count; i++) {
-                close(3 + 2 * i);
-                close(4 + 2 * i);
+            if (binary_count > 1) {
+                for (i = 0; i < binary_count; i++) {
+                    close(ipc_sockets[2 * i]);
+                    close(ipc_sockets[1 + 2 * i]);
+                }
+            }
+            if (pov_name != NULL) {
+                for (i = 0; i < 4; i++) {
+                    close(pov_pipes[i]);
+                }
+                close(pov_negotiate_sockets[0]);
+            }
+
+            /* If a PoV is running, process negotiation in the parent process */
+            if (pov_name != NULL) {
+                negotiate_pov(pov_negotiate_sockets[1]);
+                close(pov_negotiate_sockets[1]);
             }
 
             /* Parent should wait for all children to exit and return a combined status code */
@@ -1100,6 +1316,15 @@ int main(int argc, char **argv)
 
             for (i = 0; i < binary_count; i++) {
                 waitpid(children[i], &ret, 0);
+
+                if (!exit_status && WIFEXITED(ret))
+                    exit_status = WEXITSTATUS(ret);
+                if ((exit_status >= 0) && WIFSIGNALED(ret) && WTERMSIG(ret) != SIGUSR1)
+                    exit_status = -WTERMSIG(ret);
+            }
+
+            if (pov_name != NULL) {
+                waitpid(pov_pid, &ret, 0);
 
                 if (!exit_status && WIFEXITED(ret))
                     exit_status = WEXITSTATUS(ret);
@@ -1116,22 +1341,51 @@ int main(int argc, char **argv)
             }
 
             _exit(exit_status);
+        } else if (is_pov) {
+            /* PoV process, stdin/stdout are connected to running CB */
+            close(0);
+            close(1);
+            dup2(pov_pipes[2], 0);
+            dup2(pov_pipes[1], 1);
+
+            for (i = 0; i < 4; i++) {
+                close(pov_pipes[i]);
+            }
+
+            dup2(pov_negotiate_sockets[0], 3);
+            close(pov_negotiate_sockets[0]);
+            close(pov_negotiate_sockets[1]);
         } else {
             /* Child process, move IPC socket pairs into the correct file descriptor */
-            for (i = 0; i < binary_count; i++) {
-                if (dup2(ipc_sockets[i * 2], 3 + i * 2) < 0) {
-                    fprintf(stderr, "Unable to redirect socket pair to IPC file descriptor\n");
-                    _exit(1);
-                }
-                if (ipc_sockets[i * 2] != (3 + i * 2))
-                    close(ipc_sockets[i * 2]);
+            if (binary_count > 1) {
+                for (i = 0; i < binary_count; i++) {
+                    if (dup2(ipc_sockets[i * 2], 3 + i * 2) < 0) {
+                        fprintf(stderr, "Unable to redirect socket pair to IPC file descriptor\n");
+                        _exit(1);
+                    }
+                    if (ipc_sockets[i * 2] != (3 + i * 2))
+                        close(ipc_sockets[i * 2]);
 
-                if (dup2(ipc_sockets[1 + i * 2], 4 + i * 2) < 0) {
-                    fprintf(stderr, "Unable to redirect socket pair to IPC file descriptor\n");
-                    _exit(1);
+                    if (dup2(ipc_sockets[1 + i * 2], 4 + i * 2) < 0) {
+                        fprintf(stderr, "Unable to redirect socket pair to IPC file descriptor\n");
+                        _exit(1);
+                    }
+                    if (ipc_sockets[1 + i * 2] != (4 + i * 2))
+                        close(ipc_sockets[1 + i * 2]);
                 }
-                if (ipc_sockets[1 + i * 2] != (4 + i * 2))
-                    close(ipc_sockets[1 + i * 2]);
+            }
+
+            if (pov_name != NULL) {
+                /* PoV process running, connect CB stdin/stdout to the PoV process */
+                close(0);
+                close(1);
+                dup2(pov_pipes[0], 0);
+                dup2(pov_pipes[3], 1);
+                for (i = 0; i < 4; i++) {
+                    close(pov_pipes[i]);
+                }
+                close(pov_negotiate_sockets[0]);
+                close(pov_negotiate_sockets[1]);
             }
         }
     }
