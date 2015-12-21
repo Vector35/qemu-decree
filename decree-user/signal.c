@@ -348,23 +348,6 @@ static int fatal_signal (int sig)
     }
 }
 
-/* returns 1 if given signal should dump core if not handled */
-static int core_dump_signal(int sig)
-{
-    switch (sig) {
-    case TARGET_SIGABRT:
-    case TARGET_SIGFPE:
-    case TARGET_SIGILL:
-    case TARGET_SIGQUIT:
-    case TARGET_SIGSEGV:
-    case TARGET_SIGTRAP:
-    case TARGET_SIGBUS:
-        return (1);
-    default:
-        return (0);
-    }
-}
-
 void signal_init(void)
 {
     struct sigaction act;
@@ -435,8 +418,7 @@ static void QEMU_NORETURN force_sig(int target_sig)
 {
     CPUState *cpu = thread_cpu;
     CPUArchState *env = cpu->env_ptr;
-    TaskState *ts = (TaskState *)cpu->opaque;
-    int host_sig, core_dumped = 0;
+    int host_sig;
     struct sigaction act;
     host_sig = target_to_host_signal(target_sig);
     gdb_signalled(env, target_sig);
@@ -453,25 +435,15 @@ static void QEMU_NORETURN force_sig(int target_sig)
                 ((reg_value & shared->pov_reg_mask) == shared->pov_reg_expected_value)) {
             shared->pov_valid = 1;
             fprintf(stderr, "PoV type 1 verified\n");
+        } else {
+            fprintf(stderr, "Signal does not match PoV type 1 negotiation\n");
         }
     }
 
-    /* dump core if supported by target binary format */
-    if (core_dump_signal(target_sig) && (ts->bprm->core_dump != NULL)) {
-        stop_all_tasks();
-        core_dumped =
-            ((*ts->bprm->core_dump)(target_sig, env) == 0);
-    }
-    if (core_dumped) {
-        /* we already dumped the core of target process, we don't want
-         * a coredump of qemu itself */
-        struct rlimit nodump;
-        getrlimit(RLIMIT_CORE, &nodump);
-        nodump.rlim_cur=0;
-        setrlimit(RLIMIT_CORE, &nodump);
-        (void) fprintf(stderr, "qemu: uncaught target signal %d (%s) - %s\n",
-            target_sig, strsignal(host_sig), "core dumped" );
-    }
+    struct rlimit nodump;
+    getrlimit(RLIMIT_CORE, &nodump);
+    nodump.rlim_cur=0;
+    setrlimit(RLIMIT_CORE, &nodump);
 
     /* If we SIGARBT when closing the file, terminate */
     sigfillset(&act.sa_mask);

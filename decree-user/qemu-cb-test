@@ -213,7 +213,7 @@ class Runner(object):
                 return name
         return 'UNKNOWN'
 
-    def start_cb(self, xml_name, seed = None):
+    def start_cb(self, xml_name, seed = None, pov = None, pov_seed = None):
         run_cmd = [os.path.join(os.path.dirname(__file__), 'qemu-decree')]
 
         if self.timeout > 0:
@@ -227,9 +227,13 @@ class Runner(object):
             run_cmd += ['-compact']
         if self.optimize_failures:
             run_cmd += ['-closeopt']
+        if pov is not None:
+            run_cmd += ['-pov', pov]
 
         if seed is not None:
             run_cmd += ['-seed', seed.encode('hex')]
+        if pov_seed is not None:
+            run_cmd += ['-povseed', seed.encode('hex')]
 
         for cb in self.cb_list:
             if self.directory is None:
@@ -250,6 +254,23 @@ class Runner(object):
 #        return self.launch(['poll-validate'] + self.xml_list, log_error=True)
 
     def check_result(self, replay_result, sig):
+        if replay_result is None:
+            # Checking result of PoV binary
+            if sig < 0:
+                self.log.error('PoV process cored.  (signal %d: %s)', sig,
+                               self.signal_name(sig))
+                return -1
+            elif sig == 1:
+                self.log.error('PoV unsuccessful, no cores identified')
+                return -1
+            elif sig == 2:
+                self.log.error('PoV unsuccessful, CB process cored but did not match negotiation')
+                return -1
+            elif sig != 0:
+                self.log.error('PoV unsuccessful')
+                return -1
+            return 0
+
         cored = False
 
         if sig < 0:
@@ -317,12 +338,15 @@ class Runner(object):
         polls = []
 
         for xml in self.xml_list:
-            xml_name = os.path.splitext(os.path.basename(xml))[0]
+            xml_name, ext = os.path.splitext(os.path.basename(xml))
 
-            cb, replay_result = self.start_replay(lambda seed: self.start_cb(xml_name, seed), xml)
-
-            self.passed += replay_result[0]
-            self.failed += replay_result[1]
+            if ext.lower() == ".pov":
+                cb = self.start_cb(xml_name, None, xml)
+                replay_result = None
+            else:
+                cb, replay_result = self.start_replay(lambda seed: self.start_cb(xml_name, seed), xml)
+                self.passed += replay_result[0]
+                self.failed += replay_result[1]
 
             polls.append((cb, replay_result))
 
@@ -399,6 +423,7 @@ def main():
     xml_files = args.xml
     if args.xml is None:
         xml_files = glob.glob("%s/*.xml" % args.xml_dir)
+        xml_files += glob.glob("%s/*.pov" % args.xml_dir)
     xml_files.sort()
 
     log_level = logging.ERROR

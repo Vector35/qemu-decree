@@ -1335,12 +1335,20 @@ int main(int argc, char **argv)
             }
 
             if (pov_name != NULL) {
+                if (exit_status < 0)
+                    exit_status = 2; /* Crashed CB (that does not prove PoV) returns 2 */
+                else
+                    exit_status = 1; /* Normal exit from CB (that does not prove PoV) returns 1 */
+
                 waitpid(pov_pid, &ret, 0);
 
-                if (!exit_status && WIFEXITED(ret))
-                    exit_status = WEXITSTATUS(ret);
-                if ((exit_status >= 0) && WIFSIGNALED(ret) && WTERMSIG(ret) != SIGUSR1)
+                /* Return signal if PoV crashes before proof */
+                if (WIFSIGNALED(ret) && WTERMSIG(ret) != SIGUSR1)
                     exit_status = -WTERMSIG(ret);
+
+                /* If PoV was proved, always return zero (success) regardless of any signals */
+                if (shared->pov_valid)
+                    exit_status = 0;
             }
 
             if (exit_status < 0) {
