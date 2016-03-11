@@ -378,6 +378,12 @@ abi_long target_mmap(abi_ulong start, abi_ulong len, int prot,
         goto fail;
     }
 
+    /* Check for overflow */
+    if (TARGET_PAGE_ALIGN(len) < len) {
+        errno = ENOMEM;
+        goto fail;
+    }
+
     len = TARGET_PAGE_ALIGN(len);
     if (len == 0)
         goto the_end;
