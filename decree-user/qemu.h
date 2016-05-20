@@ -160,16 +160,21 @@ struct shared_data {
        can work across binary boundaries. */
     pthread_mutex_t syscall_ordering_mutex;
     pthread_cond_t syscall_ordering_cond;
+};
 
+struct pov_shared_data {
     /* Type 1 PoV negotation state */
     int pov_type_1_active;
     int pov_reg_index;
     uint32_t pov_ip_mask, pov_reg_mask;
     uint32_t pov_ip_expected_value, pov_reg_expected_value;
     int pov_valid;
+
+    int pov_negotiated_type;
 };
 
 extern struct shared_data *shared;
+extern struct pov_shared_data *pov_shared;
 
 /* Read a good amount of data initially, to hopefully get all the
    program headers loaded.  */
@@ -451,6 +456,8 @@ static inline void *lock_user_string(abi_ulong guest_addr)
 #define REPLAY_FLAG_COMPACT 1 /* When set, doesn't include validation information */
 #define REPLAY_FLAG_LIMIT_CLOSED_FD_LOOP 2 /* When set, time out after a large number of reads/writes to closed fds */
 #define REPLAY_FLAG_POV 4 /* When set, replaying a PoV binary */
+#define REPLAY_FLAG_POV_TYPE_1 8 /* When set, replaying a type 1 PoV */
+#define REPLAY_FLAG_POV_TYPE_2 0x10 /* When set, replaying a type 2 PoV */
 
 //#define REPLAY_VERIFY_INSN_RETIRED /* When defined, verify instruction counter during replay */
 

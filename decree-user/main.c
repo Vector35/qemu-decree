@@ -92,6 +92,7 @@ static int pov_pipes[4];
 static int pov_negotiate_sockets[2];
 
 struct shared_data *shared = NULL;
+struct pov_shared_data *pov_shared = NULL;
 
 static void usage(void);
 
@@ -938,7 +939,7 @@ static int negotiate_pov(int s)
     int data[3];
     uint8_t secret_page[4096];
 
-    shared->pov_valid = 0;
+    pov_shared->pov_valid = 0;
 
     if (read_all(s, &type, sizeof(type)) != 0) {
         fprintf(stderr, "PoV negotiation failed: did not receive type\n");
@@ -949,6 +950,7 @@ static int negotiate_pov(int s)
         static const char *reg_names[8] = {"eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi"};
 
         fprintf(stderr, "PoV negotiating type 1\n");
+        pov_shared->pov_negotiated_type = 1;
 
         if (read_all(s, data, sizeof(int) * 3) != 0) {
             fprintf(stderr, "PoV negotiation failed: did not receive register and masks\n");
@@ -969,18 +971,18 @@ static int negotiate_pov(int s)
         }
 
         fprintf(stderr, "PoV using IP mask %.8x and register %s with mask %.8x\n", data[0], reg_names[data[2]], data[1]);
-        shared->pov_ip_mask = data[0];
-        shared->pov_reg_mask = data[1];
-        shared->pov_reg_index = data[2];
+        pov_shared->pov_ip_mask = data[0];
+        pov_shared->pov_reg_mask = data[1];
+        pov_shared->pov_reg_index = data[2];
 
         AES_set_encrypt_key(&negotiate_random_seed[16], 128, &random_key);
         get_random_bytes((uint8_t*)data, sizeof(int) * 2);
 
-        data[0] &= shared->pov_ip_mask;
-        data[1] &= shared->pov_reg_mask;
-        shared->pov_ip_expected_value = data[0];
-        shared->pov_reg_expected_value = data[1];
-        shared->pov_type_1_active = 1;
+        data[0] &= pov_shared->pov_ip_mask;
+        data[1] &= pov_shared->pov_reg_mask;
+        pov_shared->pov_ip_expected_value = data[0];
+        pov_shared->pov_reg_expected_value = data[1];
+        pov_shared->pov_type_1_active = 1;
 
         if (write_all(s, data, sizeof(int) * 2) != 0) {
             fprintf(stderr, "PoV negotiation failed: send error\n");
@@ -990,6 +992,7 @@ static int negotiate_pov(int s)
         return 1;
     } else if (type == 2) {
         fprintf(stderr, "PoV negotiating type 2\n");
+        pov_shared->pov_negotiated_type = 2;
         data[0] = CGC_MAGIC_PAGE;
         data[1] = 0x1000;
         data[2] = 4;
@@ -1010,7 +1013,7 @@ static int negotiate_pov(int s)
         for (i = 0; i <= (4096 - 4); i++) {
             if (*((int*)(&secret_page[i])) == secret) {
                 fprintf(stderr, "PoV type 2 verified\n");
-                shared->pov_valid = 1;
+                pov_shared->pov_valid = 1;
                 return 1;
             }
         }
@@ -1080,6 +1083,18 @@ static void init_shared_region(void)
     pthread_cond_init(&shared->syscall_ordering_cond, &condattr);
 }
 
+static void init_pov_shared_region(void)
+{
+    /* Allocate shared memory for communicating across binaries */
+    pov_shared = mmap(NULL, sizeof(struct pov_shared_data), PROT_READ | PROT_WRITE,
+        MAP_ANONYMOUS | MAP_SHARED, -1, 0);
+    if (!pov_shared) {
+        fprintf(stderr, "Unable to allocate shared memory\n");
+        _exit(1);
+    }
+    memset(pov_shared, 0, sizeof(struct pov_shared_data));
+}
+
 int main(int argc, char **argv)
 {
     struct target_pt_regs regs1, *regs = &regs1;
@@ -1119,6 +1134,7 @@ int main(int argc, char **argv)
     optind = parse_args(argc, argv);
 
     init_shared_region();
+    init_pov_shared_region();
 
     /* For multi-executable challenge binaries, we need to set up the IPC socket pairs.
        Each executable has a socket pair associated with it, starting at descriptor 3. */
@@ -1347,7 +1363,7 @@ int main(int argc, char **argv)
                     exit_status = -WTERMSIG(ret);
 
                 /* If PoV was proved, always return zero (success) regardless of any signals */
-                if (shared->pov_valid)
+                if (pov_shared->pov_valid)
                     exit_status = 0;
             }
 

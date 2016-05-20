@@ -285,6 +285,14 @@ int replay_close(CPUArchState *env, int signal)
         hdr.insn_retired = env->insn_retired;
         hdr.exit_signal = signal;
 
+        /* If this is a PoV, set flags according to negotiated PoV type */
+        if (replay_flags & REPLAY_FLAG_POV) {
+            if (pov_shared->pov_negotiated_type == 1)
+                hdr.flags |= REPLAY_FLAG_POV_TYPE_1;
+            else if (pov_shared->pov_negotiated_type == 2)
+                hdr.flags |= REPLAY_FLAG_POV_TYPE_2;
+        }
+
         if (lseek(replay_fd, 0, SEEK_SET) < 0) {
             fprintf(stderr, "Failed to seek when updating replay header\n");
             abort();

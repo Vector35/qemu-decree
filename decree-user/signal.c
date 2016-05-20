@@ -423,17 +423,17 @@ static void QEMU_NORETURN force_sig(int target_sig)
     host_sig = target_to_host_signal(target_sig);
     gdb_signalled(env, target_sig);
 
-    if (shared->pov_type_1_active && (!is_pov_process()) &&
+    if (pov_shared->pov_type_1_active && (!is_pov_process()) &&
             ((host_sig == SIGSEGV) || (host_sig == SIGBUS) || (host_sig == SIGILL))) {
         uint32_t reg_value;
         static const char *reg_names[8] = {"eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi"};
 
-        reg_value = env->regs[shared->pov_reg_index];
-        fprintf(stderr, "Detected signal at eip=%.8x and %s=%.8x\n", env->eip, reg_names[shared->pov_reg_index], reg_value);
+        reg_value = env->regs[pov_shared->pov_reg_index];
+        fprintf(stderr, "Detected signal at eip=%.8x and %s=%.8x\n", env->eip, reg_names[pov_shared->pov_reg_index], reg_value);
 
-        if (((env->eip & shared->pov_ip_mask) == shared->pov_ip_expected_value) &&
-                ((reg_value & shared->pov_reg_mask) == shared->pov_reg_expected_value)) {
-            shared->pov_valid = 1;
+        if (((env->eip & pov_shared->pov_ip_mask) == pov_shared->pov_ip_expected_value) &&
+                ((reg_value & pov_shared->pov_reg_mask) == pov_shared->pov_reg_expected_value)) {
+            pov_shared->pov_valid = 1;
             fprintf(stderr, "PoV type 1 verified\n");
         } else {
             fprintf(stderr, "Signal does not match PoV type 1 negotiation\n");
