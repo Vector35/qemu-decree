@@ -36,6 +36,7 @@
 #include "qemu/envlist.h"
 #include "elf.h"
 #include "qemu/aes.h"
+#include "libids.h"
 
 int singlestep;
 int gdbstub_port;
@@ -93,6 +94,11 @@ static int pov_negotiate_sockets[2];
 
 struct shared_data *shared = NULL;
 struct pov_shared_data *pov_shared = NULL;
+
+static char *ids_rules = NULL;
+static int client_ids_pipes[2];
+static int server_ids_pipes[2];
+static int ids_done_pipe[2];
 
 static void usage(void);
 
@@ -632,6 +638,11 @@ static void handle_arg_closeopt(const char *arg)
     record_replay_flags |= REPLAY_FLAG_LIMIT_CLOSED_FD_LOOP;
 }
 
+static void handle_arg_ids(const char *arg)
+{
+    ids_rules = strdup(arg);
+}
+
 static void handle_arg_version(const char *arg)
 {
     printf("qemu-" TARGET_NAME " version " QEMU_VERSION QEMU_PKGVERSION
@@ -694,6 +705,8 @@ static const struct qemu_argument arg_table[] = {
      "",           "Seed for pseudo-random number generator in PoV"},
     {"negseed",    "QEMU_NEG_RAND_SEED", true,  handle_arg_negotiate_randseed,
      "",           "Seed for pseudo-random number generator in PoV negotiation"},
+    {"ids",        "QEMU_IDS",         true,  handle_arg_ids,
+     "",           "Apply CGC network appliance rules"},
     {"version",    "QEMU_VERSION",     false, handle_arg_version,
      "",           "display version information and exit"},
     {NULL, NULL, false, NULL, NULL, NULL}
@@ -1166,6 +1179,22 @@ int main(int argc, char **argv)
         }
     }
 
+    /* If using an IDS rule set, create pipes for running the input/output through the IDS */
+    if (ids_rules != NULL) {
+        if (pipe(client_ids_pipes) < 0) {
+            fprintf(stderr, "Unable to create pipe for IDS");
+            _exit(1);
+        }
+        if (pipe(server_ids_pipes) < 0) {
+            fprintf(stderr, "Unable to create pipe for IDS");
+            _exit(1);
+        }
+        if (pipe(ids_done_pipe) < 0) {
+            fprintf(stderr, "Unable to create pipe for IDS");
+            _exit(1);
+        }
+    }
+
     /* If debugging is desired, check for compatibility */
     if (gdbstub_port && (binary_count > 1)) {
         fprintf(stderr, "Debugging of multiple binaries is not supported. You can debug individual\n");
@@ -1279,12 +1308,26 @@ int main(int argc, char **argv)
        all running binaries to have a common reference point. */
     shared->base_wall_time = get_physical_wall_time();
 
-    if ((binary_count == 1) && (pov_name == NULL)) {
+    if ((binary_count == 1) && (pov_name == NULL) && (ids_rules == NULL)) {
         binary_index = 0;
         filename = argv[optind];
         open_and_load_file(filename, regs, info, &bprm);
     } else {
         signal(SIGCHLD, sigchild_handler);
+
+        if (ids_rules != NULL) {
+            /* Redirect stdin/stdout through the IDS */
+            GoString ids_filename = {ids_rules, strlen(ids_rules)};
+            int orig_stdin = dup(0);
+            int orig_stdout = dup(1);
+
+            run_ids(ids_filename, orig_stdin, client_ids_pipes[1], server_ids_pipes[0], orig_stdout, ids_done_pipe[1]);
+
+            dup2(client_ids_pipes[0], 0);
+            dup2(server_ids_pipes[1], 1);
+            close(client_ids_pipes[0]);
+            close(server_ids_pipes[1]);
+        }
 
         /* Multi-executable binaries need to create child processes for each executable */
         children = g_malloc0(sizeof(pid_t) * binary_count);
@@ -1293,6 +1336,11 @@ int main(int argc, char **argv)
             /* Create a child process and execute the binary */
             children[i] = fork();
             if (children[i] == 0) {
+                if (ids_rules != NULL) {
+                    close(client_ids_pipes[1]);
+                    close(server_ids_pipes[0]);
+                }
+
                 is_parent = 0;
                 binary_index = i;
                 filename = argv[optind + i];
@@ -1304,6 +1352,11 @@ int main(int argc, char **argv)
         if (is_parent && (pov_name != NULL)) {
             pov_pid = fork();
             if (pov_pid == 0) {
+                if (ids_rules != NULL) {
+                    close(client_ids_pipes[1]);
+                    close(server_ids_pipes[0]);
+                }
+
                 is_parent = 0;
                 binary_index = 0;
                 binary_count = 1;
@@ -1331,6 +1384,8 @@ int main(int argc, char **argv)
                 }
                 close(pov_negotiate_sockets[0]);
             }
+            close(0);
+            close(1);
 
             /* If a PoV is running, process negotiation in the parent process */
             if (pov_name != NULL) {
@@ -1365,6 +1420,20 @@ int main(int argc, char **argv)
                 /* If PoV was proved, always return zero (success) regardless of any signals */
                 if (pov_shared->pov_valid)
                     exit_status = 0;
+            }
+
+            if (ids_rules != NULL) {
+                /* Cannot call back into Go and have channels work, so we have to keep a pipe around that will
+                   be closed to signal that the IDS is done processing */
+                while (true) {
+                    char data;
+                    if (read(ids_done_pipe[0], &data, 1) < 0)
+                    {
+                        if (errno == EINTR)
+                            continue;
+                    }
+                    break;
+                }
             }
 
             if (exit_status < 0) {

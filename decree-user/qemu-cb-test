@@ -121,7 +121,7 @@ class Runner(object):
     pov_signals = [signal.SIGSEGV, signal.SIGILL, signal.SIGBUS]
 
     def __init__(self, cb_list, xml_list, wrapper, directory,
-                 should_core, failure_ok, should_debug, timeout, record, compact, opt_failure, log_fh):
+                 should_core, failure_ok, should_debug, timeout, record, compact, opt_failure, ids, log_fh):
         self.log = logging.getLogger('cb-test')
         self.cb_list = cb_list
         self.xml_list = xml_list
@@ -134,6 +134,7 @@ class Runner(object):
         self.record = record
         self.compact = compact
         self.optimize_failures = opt_failure
+        self.ids = ids
         self.processes = []
         self.log_fh = log_fh
         self.passed = 0
@@ -233,7 +234,10 @@ class Runner(object):
         if seed is not None:
             run_cmd += ['-seed', seed.encode('hex')]
         if pov_seed is not None:
-            run_cmd += ['-povseed', seed.encode('hex')]
+            run_cmd += ['-povseed', pov_seed.encode('hex')]
+
+        if self.ids is not None:
+            run_cmd += ['-ids', self.ids]
 
         for cb in self.cb_list:
             if self.directory is None:
@@ -410,6 +414,7 @@ def main():
                         default=False, help='Record replays without validation information')
     parser.add_argument('--optimize_failure', required=False, action='store_true',
                         default=False, help='Detect failure conditions early')
+    parser.add_argument('--ids', required=False, type=str, help='IDS ruleset filename')
 
     exgroup = parser.add_argument_group(title='XML files')
     group = exgroup.add_mutually_exclusive_group(required=True)
@@ -445,7 +450,7 @@ def main():
     ret = -1
     runner = Runner(args.cb, xml_files, args.wrapper,
                     args.directory, args.should_core, args.failure_ok,
-                    args.debug, args.timeout, args.record, args.compact, args.optimize_failure, log_fh)
+                    args.debug, args.timeout, args.record, args.compact, args.optimize_failure, args.ids, log_fh)
     try:
         ret = runner.run()
     except KeyboardInterrupt:

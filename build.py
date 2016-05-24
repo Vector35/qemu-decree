@@ -107,7 +107,7 @@ def test_tci_replays(name, patched, poll_names, desc, should_core):
 	t = time.time() - begin
 	return True, t
 
-def run_poller(name, config):
+def run_poller(name, config, ids = None):
 	polls = glob.glob("%s/poller/for-%s/*.xml" % (name, config))
 	count = len(polls)
 	if count == 0:
@@ -126,26 +126,32 @@ def run_poller(name, config):
 	cb_paths, cb_names = get_cbs(name, False)
 
 	# Run the polls and record replays
-	ok, t = run_cb_test(name, False, ["--xml_dir", "%s/poller/for-%s" % (name, config)], "%d poll(s) for %s" % (count, config))
+	opt_name = ""
+	opt = []
+	if ids is not None:
+		opt_name = " with IDS"
+		opt = ["--ids", ids]
+	ok, t = run_cb_test(name, False, ["--xml_dir", "%s/poller/for-%s" % (name, config)] + opt,
+		"%d poll(s) for %s%s" % (count, config, opt_name))
 	if not ok:
 		return False
 	ok, replay_size = compute_replay_size(name, False, poll_names)
 	if not ok:
 		return False
 
-	print "%d poll(s) for %s complete in %.2f seconds with %.2fMB of replays" % (count, config, t, replay_size / 1048576.0)
+	print "%d poll(s) for %s%s complete in %.2f seconds with %.2fMB of replays" % (count, config, opt_name, t, replay_size / 1048576.0)
 
 	# Test the replays
 	ok, t = test_replays(name, False, poll_names, "polls for %s" % config, False)
 	if not ok:
 		return False
-	print "%d poll(s) for %s replayed in %.2f seconds" % (count, config, t)
+	print "%d poll(s) for %s%s replayed in %.2f seconds" % (count, config, opt_name, t)
 
 	# Test the replays in interpreted mode
 	ok, t = test_tci_replays(name, False, poll_names, "polls for %s" % config, False)
 	if not ok:
 		return False
-	print "%d poll(s) for %s replayed in %.2f seconds (interpreter)" % (count, config, t)
+	print "%d poll(s) for %s%s replayed in %.2f seconds (interpreter)" % (count, config, opt_name, t)
 
 	return True
 
@@ -206,10 +212,14 @@ def test_cb(name):
 	with zipfile.ZipFile("cb_tests/%s.zip" % name, 'r') as z:
 		z.extractall()
 
-	# Run pollers 
+	# Run pollers
 	if not run_poller(name, "release"):
 		return False
 	if not run_poller(name, "testing"):
+		return False
+	if not run_poller(name, "release", ids="/dev/null"):
+		return False
+	if not run_poller(name, "testing", ids="/dev/null"):
 		return False
 
 	# Run PoVs

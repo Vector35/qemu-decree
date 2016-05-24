@@ -90,6 +90,9 @@
 .sdk
 *.gcda
 *.gcno
+*.y.old
+*.y.go
+*.yy.go
 /pc-bios/bios-pq/status
 /pc-bios/vgabios-pq/status
 /pc-bios/optionrom/linuxboot.asm
@@ -113,3 +116,5 @@ TAGS
 *~
 /tests/qemu-iotests/common.env
 .dir-locals.el
+/decree-user/ids/y.output
+!/decree-user/ids/libids.a

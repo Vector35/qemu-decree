@@ -4293,6 +4293,9 @@ fi
 QEMU_CFLAGS="$pixman_cflags $fdt_cflags $QEMU_CFLAGS"
 libs_softmmu="$pixman_libs $libs_softmmu"
 
+CFLAGS="$CFLAGS -I\$(SRC_PATH)/decree-user/ids"
+LIBS="$LIBS -L\$(SRC_PATH)/decree-user/ids -lids"
+
 echo "Install prefix    $prefix"
 echo "BIOS directory    `eval echo $qemu_datadir`"
 echo "binary directory  `eval echo $bindir`"
