@@ -988,7 +988,8 @@ static int negotiate_pov(int s)
         pov_shared->pov_reg_mask = data[1];
         pov_shared->pov_reg_index = data[2];
 
-        AES_set_encrypt_key(&negotiate_random_seed[16], 128, &random_key);
+        memcpy(random_seed, negotiate_random_seed, sizeof(random_seed));
+        AES_set_encrypt_key(&random_seed[16], 128, &random_key);
         get_random_bytes((uint8_t*)data, sizeof(int) * 2);
 
         data[0] &= pov_shared->pov_ip_mask;
@@ -1315,18 +1316,32 @@ int main(int argc, char **argv)
     } else {
         signal(SIGCHLD, sigchild_handler);
 
+        int orig_stdin = 0;
+        int orig_stdout = 0;
         if (ids_rules != NULL) {
             /* Redirect stdin/stdout through the IDS */
             GoString ids_filename = {ids_rules, strlen(ids_rules)};
-            int orig_stdin = dup(0);
-            int orig_stdout = dup(1);
+            if (pov_name != NULL) {
+                orig_stdin = dup(pov_pipes[0]);
+                orig_stdout = dup(pov_pipes[3]);
+            } else {
+                orig_stdin = dup(0);
+                orig_stdout = dup(1);
+            }
 
             run_ids(ids_filename, orig_stdin, client_ids_pipes[1], server_ids_pipes[0], orig_stdout, ids_done_pipe[1]);
 
-            dup2(client_ids_pipes[0], 0);
-            dup2(server_ids_pipes[1], 1);
-            close(client_ids_pipes[0]);
-            close(server_ids_pipes[1]);
+            if (pov_name != NULL) {
+                dup2(client_ids_pipes[0], pov_pipes[0]);
+                dup2(server_ids_pipes[1], pov_pipes[3]);
+                close(client_ids_pipes[0]);
+                close(server_ids_pipes[1]);
+            } else {
+                dup2(client_ids_pipes[0], 0);
+                dup2(server_ids_pipes[1], 1);
+                close(client_ids_pipes[0]);
+                close(server_ids_pipes[1]);
+            }
         }
 
         /* Multi-executable binaries need to create child processes for each executable */
@@ -1339,6 +1354,10 @@ int main(int argc, char **argv)
                 if (ids_rules != NULL) {
                     close(client_ids_pipes[1]);
                     close(server_ids_pipes[0]);
+                    close(ids_done_pipe[0]);
+                    close(ids_done_pipe[1]);
+                    close(orig_stdin);
+                    close(orig_stdout);
                 }
 
                 is_parent = 0;
@@ -1355,6 +1374,10 @@ int main(int argc, char **argv)
                 if (ids_rules != NULL) {
                     close(client_ids_pipes[1]);
                     close(server_ids_pipes[0]);
+                    close(ids_done_pipe[0]);
+                    close(ids_done_pipe[1]);
+                    close(orig_stdin);
+                    close(orig_stdout);
                 }
 
                 is_parent = 0;
@@ -1424,7 +1447,7 @@ int main(int argc, char **argv)
 
             if (ids_rules != NULL) {
                 /* Cannot call back into Go and have channels work, so we have to keep a pipe around that will
-                   be closed to signal that the IDS is done processing */
+                   be written to signal that the IDS is done processing */
                 while (true) {
                     char data;
                     if (read(ids_done_pipe[0], &data, 1) < 0)
@@ -1459,6 +1482,8 @@ int main(int argc, char **argv)
             dup2(pov_negotiate_sockets[0], 3);
             close(pov_negotiate_sockets[0]);
             close(pov_negotiate_sockets[1]);
+
+            memcpy(random_seed, pov_random_seed, sizeof(random_seed));
         } else {
             /* Child process, move IPC socket pairs into the correct file descriptor */
             if (binary_count > 1) {

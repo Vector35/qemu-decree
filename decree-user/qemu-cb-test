@@ -121,7 +121,8 @@ class Runner(object):
     pov_signals = [signal.SIGSEGV, signal.SIGILL, signal.SIGBUS]
 
     def __init__(self, cb_list, xml_list, wrapper, directory,
-                 should_core, failure_ok, should_debug, timeout, record, compact, opt_failure, ids, log_fh):
+                 should_core, failure_ok, should_debug, timeout, record, compact, opt_failure, ids, log_fh,
+                 seed = None, pov_seed = None, negotiate_seed = None):
         self.log = logging.getLogger('cb-test')
         self.cb_list = cb_list
         self.xml_list = xml_list
@@ -141,6 +142,9 @@ class Runner(object):
         self.failed = 0
         self.errors = 0
         self.full_passed = 0
+        self.seed = seed
+        self.pov_seed = pov_seed
+        self.neg_seed = negotiate_seed
 
         if self.should_debug:
             resource.setrlimit(resource.RLIMIT_CORE, (resource.RLIM_INFINITY,
@@ -214,7 +218,7 @@ class Runner(object):
                 return name
         return 'UNKNOWN'
 
-    def start_cb(self, xml_name, seed = None, pov = None, pov_seed = None):
+    def start_cb(self, xml_name, seed = None, pov = None):
         run_cmd = [os.path.join(os.path.dirname(__file__), 'qemu-decree')]
 
         if self.timeout > 0:
@@ -233,8 +237,12 @@ class Runner(object):
 
         if seed is not None:
             run_cmd += ['-seed', seed.encode('hex')]
-        if pov_seed is not None:
-            run_cmd += ['-povseed', pov_seed.encode('hex')]
+        elif self.seed is not None:
+            run_cmd += ['-seed', self.seed]
+        if self.pov_seed is not None:
+            run_cmd += ['-povseed', self.pov_seed]
+        if self.neg_seed is not None:
+            run_cmd += ['-negseed', self.neg_seed]
 
         if self.ids is not None:
             run_cmd += ['-ids', self.ids]

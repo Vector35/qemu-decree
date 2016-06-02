@@ -394,6 +394,7 @@ func IDSMain(filename string, client_read uintptr, client_write uintptr, server_
 	<- client_read_done
 	<- server_read_done
 
+	done.Write([]byte {1});
 	done.Close()
 }
 
