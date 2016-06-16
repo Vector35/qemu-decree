@@ -107,6 +107,9 @@ func (filter_data *IDSRule) RunFilter(state map[string]bool, side int, data []by
 			raw_data := data[data_offset:]
 
 			if filter_data.value_int > 0 {
+				if (filter_data.value_int > len(raw_data)) {
+					return nil, 0, nil
+				}
 				raw_data = raw_data[:filter_data.value_int]
 			}
 
@@ -124,7 +127,7 @@ func (filter_data *IDSRule) RunFilter(state map[string]bool, side int, data []by
 					return nil, 0, errors.New("Replace in match statement -- data overrun")
 				}
 
-				data = append(data[:data_offset], append(append(raw_data[:offset_index], []byte(filter_data.value_str2)...), raw_data[offset_index+len(filter_data.value_str2):]...)...)
+				data = append(data[:data_offset], append(append(raw_data[:offset_index], []byte(filter_data.value_str2)...), data[data_offset+offset_index+len(filter_data.value_str2):]...)...)
 			}
 
 			data_offset += len(filter_data.value_str)
@@ -378,21 +381,19 @@ func IDSMain(filename string, client_read uintptr, client_write uintptr, server_
 	client_to_server_read := os.NewFile(client_read, "client read pipe")
 	client_to_server_write := os.NewFile(client_write, "client write pipe")
 
-	client_read_done := make(chan bool)
-	server_read_done := make(chan bool)
+	read_done := make(chan bool)
 
 	clientConnection := &Connection{"Client Listener", RULE_SIDE_CLIENT, client_to_server_read, client_to_server_write,
-		server_to_client_read, server_to_client_write, netFilter, client_read_done}
+		server_to_client_read, server_to_client_write, netFilter, read_done}
 
 	go ConnectionReader(clientConnection)
 
 	serverConnection := &Connection{"Server Listener", RULE_SIDE_SERVER, server_to_client_read, server_to_client_write,
-		client_to_server_read, client_to_server_write, netFilter, server_read_done}
+		client_to_server_read, client_to_server_write, netFilter, read_done}
 
 	go ConnectionReader(serverConnection)
 
-	<- client_read_done
-	<- server_read_done
+	<- read_done
 
 	done.Write([]byte {1});
 	done.Close()
