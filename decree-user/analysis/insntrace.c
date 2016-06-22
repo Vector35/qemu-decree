@@ -14,6 +14,8 @@ struct insn_trace_with_regs_event {
 };
 
 static int event_id = -1;
+int ready_for_trace = 0;
+int enable_syscall_trace = 1;
 
 static int populate_insn_bytes(void *data, target_ulong insn_eip, struct Instruction *insn)
 {
@@ -43,6 +45,14 @@ static void insn_trace_before_insn(CPUArchState *env, void *data, target_ulong i
         uint8_t storage[sizeof(struct insn_trace_event) + 15];
     } event;
 
+    if ((insn->operation == INT) && ((env->regs[R_EAX] == 2) || (env->regs[R_EAX] == 3))) {
+        ready_for_trace = 1;
+        enable_syscall_trace = 1;
+    }
+    if (!ready_for_trace) {
+        return;
+    }
+
     event.data.eip = insn_eip;
     if (populate_insn_bytes(event.data.bytes, insn_eip, insn))
         analysis_output_event(env, event_id, &event, sizeof(struct insn_trace_event) + insn->length);
@@ -56,6 +66,14 @@ static void insn_trace_before_insn_disasm(CPUArchState *env, void *data, target_
         uint8_t storage[sizeof(struct insn_trace_event) + 64];
     } event;
 
+    if ((insn->operation == INT) && ((env->regs[R_EAX] == 2) || (env->regs[R_EAX] == 3))) {
+        ready_for_trace = 1;
+        enable_syscall_trace = 1;
+    }
+    if (!ready_for_trace) {
+        return;
+    }
+
     event.data.eip = insn_eip;
     populate_insn_disasm(event.data.bytes, insn_eip, insn, 63);
     analysis_output_event(env, event_id, &event, sizeof(struct insn_trace_event) + strlen((char*)event.data.bytes));
@@ -68,6 +86,14 @@ static void insn_trace_before_insn_regs(CPUArchState *env, void *data, target_ul
         struct insn_trace_with_regs_event data;
         uint8_t storage[sizeof(struct insn_trace_with_regs_event) + 15];
     } event;
+
+    if ((insn->operation == INT) && ((env->regs[R_EAX] == 2) || (env->regs[R_EAX] == 3))) {
+        ready_for_trace = 1;
+        enable_syscall_trace = 1;
+    }
+    if (!ready_for_trace) {
+        return;
+    }
 
     event.data.eip = insn_eip;
     event.data.eax = env->regs[R_EAX];
@@ -91,6 +117,14 @@ static void insn_trace_before_insn_regs_disasm(CPUArchState *env, void *data, ta
         uint8_t storage[sizeof(struct insn_trace_with_regs_event) + 64];
     } event;
 
+    if ((insn->operation == INT) && ((env->regs[R_EAX] == 2) || (env->regs[R_EAX] == 3))) {
+        ready_for_trace = 1;
+        enable_syscall_trace = 1;
+    }
+    if (!ready_for_trace) {
+        return;
+    }
+
     event.data.eip = insn_eip;
     event.data.eax = env->regs[R_EAX];
     event.data.ecx = env->regs[R_ECX];
@@ -110,6 +144,8 @@ static int activate_insn_trace(CPUArchState *env, int argc, char **argv)
     int regs = 0;
     int disasm = 0;
     int i;
+
+    enable_syscall_trace = 0;
 
     for (i = 0; i < argc; i++) {
         if (!strcmp(argv[i], "regs"))

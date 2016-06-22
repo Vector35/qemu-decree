@@ -622,6 +622,8 @@ extern struct InstrumentationState instrumentation;
 extern target_ulong insn_eip;
 extern struct Instruction cur_insn;
 extern int memory_trace_enabled;
+extern int ready_for_trace;
+extern int enable_syscall_trace;
 
 InsnInstrumentation *add_insn_instrumentation(CPUArchState *env, InsnInstrumentationFilterFn filter,
                                               InsnInstrumentationFn before, InsnInstrumentationFn after,

@@ -285,7 +285,9 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
 
     switch(num) {
     case 1: /* terminate */
-        analysis_output_log(env, "terminate", "Terminated normally with code %d", arg1);
+        if (enable_syscall_trace) {
+            analysis_output_log(env, "terminate", "Terminated normally with code %d", arg1);
+        }
         notify_exit(env, 0);
         if (!replay_close(env, 0))
             abort();
@@ -382,7 +384,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 pthread_mutex_unlock(shared->write_mutex[arg1]);
         }
 
-        if (is_analysis_enabled() && (!is_error(ret))) {
+        if (is_analysis_enabled() && (!is_error(ret)) && enable_syscall_trace) {
             char *data_str = stringify_data(p, ret);
             analysis_output_log(env, "transmit", "Transmit \"%s\"", data_str);
             free(data_str);
@@ -548,7 +550,7 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
                 pthread_mutex_unlock(shared->read_mutex[arg1]);
         }
 
-        if (is_analysis_enabled() && (!is_error(ret))) {
+        if (is_analysis_enabled() && (!is_error(ret)) && enable_syscall_trace) {
             p = g2h(arg2);
             char *data_str = stringify_data(p, ret);
             analysis_output_log(env, "receive", "Receive \"%s\"", data_str);
@@ -673,7 +675,9 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
         }
 
         if (ret >= 0) {
-            analysis_output_log(env, "fdwait", "Wait for transmit/receive");
+            if (enable_syscall_trace) {
+                analysis_output_log(env, "fdwait", "Wait for transmit/receive");
+            }
             if (arg5 && put_user_sal(ret, arg5))
                 goto efault;
             ret = 0;
@@ -689,7 +693,9 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
             ret = get_errno(target_mmap(0, arg1, PROT_READ | PROT_WRITE | (arg2 ? PROT_EXEC: 0),
                         MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
             if (!is_error(ret)) {
-                analysis_output_log(env, "allocate", "Allocate %d bytes at 0x%x", arg1, ret);
+                if (enable_syscall_trace) {
+                    analysis_output_log(env, "allocate", "Allocate %d bytes at 0x%x", arg1, ret);
+                }
                 if (put_user_sal(ret, arg3))
                     goto efault;
                 ret = 0;
@@ -709,7 +715,9 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
         } else {
             ret = get_errno(target_munmap(arg1, arg2));
             if (!is_error(ret)) {
-                analysis_output_log(env, "free", "Free %d bytes at 0x%x", arg2, arg1);
+                if (enable_syscall_trace) {
+                    analysis_output_log(env, "free", "Free %d bytes at 0x%x", arg2, arg1);
+                }
             }
         }
         break;
@@ -762,7 +770,9 @@ abi_long do_syscall(CPUArchState *env, int num, abi_long arg1,
             replay_write_validation_event(env, REPLAY_EVENT_RANDOM, 0, arg2, p, arg2);
         }
 
-        analysis_output_log(env, "random", "Generate %d random bytes", arg2);
+        if (enable_syscall_trace) {
+            analysis_output_log(env, "random", "Generate %d random bytes", arg2);
+        }
 
         unlock_user(p, arg1, arg2);
         if (arg3 && put_user_sal(arg2, arg3))

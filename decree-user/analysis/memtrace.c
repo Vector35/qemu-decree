@@ -12,6 +12,10 @@ static void read_callback(CPUArchState *env, void *data, abi_ulong addr, abi_ulo
 {
 	struct mem_trace_event event;
 
+	if (!ready_for_trace) {
+		return;
+	}
+
 	if (unlikely(size > sizeof(event.value))) {
 		fprintf(stderr, "Memory read size larger than native integer\n");
 		abort();
@@ -25,6 +29,10 @@ static void read_callback(CPUArchState *env, void *data, abi_ulong addr, abi_ulo
 static void write_callback(CPUArchState *env, void *data, abi_ulong addr, abi_ulong size, abi_ulong value)
 {
 	struct mem_trace_event event;
+
+	if (!ready_for_trace) {
+		return;
+	}
 
 	if (unlikely(size > sizeof(event.value))) {
 		fprintf(stderr, "Memory write size larger than native integer\n");

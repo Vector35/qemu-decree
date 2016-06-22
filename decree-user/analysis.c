@@ -172,10 +172,19 @@ void analysis_output_event(CPUArchState *env, int32_t event_id, const void *data
         abort();
     }
 
+    static uint64_t start_insn_count = 0;
+    static bool first_event = true;
+    if (first_event) {
+        start_insn_count = env->insn_retired;
+        if (event_id != ANALYSIS_DEFINE_EVENT) {
+            first_event = false;
+        }
+    }
+
     hdr.event_id = event_id;
     hdr.length = (uint32_t)len;
     hdr.wall_time = get_insn_wall_time(env);
-    hdr.insn_count = env->insn_retired;
+    hdr.insn_count = env->insn_retired - start_insn_count;
     output_buffered_write(&hdr, sizeof(hdr), data, len);
 }
 
