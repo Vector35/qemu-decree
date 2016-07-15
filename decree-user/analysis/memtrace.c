@@ -17,8 +17,9 @@ static void read_callback(CPUArchState *env, void *data, abi_ulong addr, abi_ulo
 	}
 
 	if (unlikely(size > sizeof(event.value))) {
-		fprintf(stderr, "Memory read size larger than native integer\n");
-		abort();
+/*		fprintf(stderr, "Memory read size larger than native integer\n");
+		abort(); */
+		return;
 	}
 
 	event.addr = addr;
@@ -35,8 +36,9 @@ static void write_callback(CPUArchState *env, void *data, abi_ulong addr, abi_ul
 	}
 
 	if (unlikely(size > sizeof(event.value))) {
-		fprintf(stderr, "Memory write size larger than native integer\n");
-		abort();
+/*		fprintf(stderr, "Memory write size larger than native integer\n");
+		abort(); */
+		return;
 	}
 
 	event.addr = addr;
