@@ -52,6 +52,9 @@ static size_t consumed_output_buffer = 0;
 
 static int32_t log_event_id = -1;
 
+uint64_t min_analysis_insn = 0;
+uint64_t max_analysis_insn_count = 1LL << 63;
+
 static void output_write(const void* data, size_t len)
 {
     if (len > (1 << 30)) {
@@ -185,6 +188,17 @@ void analysis_output_event(CPUArchState *env, int32_t event_id, const void *data
     hdr.length = (uint32_t)len;
     hdr.wall_time = get_insn_wall_time(env);
     hdr.insn_count = env->insn_retired - start_insn_count;
+
+    if (hdr.insn_count < min_analysis_insn) {
+        if (event_id != ANALYSIS_DEFINE_EVENT) {
+            return;
+        }
+        hdr.insn_count = min_analysis_insn;
+    } else if (hdr.insn_count >= (min_analysis_insn + max_analysis_insn_count)) {
+        return;
+    }
+    hdr.insn_count -= min_analysis_insn;
+
     output_buffered_write(&hdr, sizeof(hdr), data, len);
 }
 
@@ -263,6 +277,26 @@ void activate_pending_analysis(CPUArchState *env)
     log_event_id = analysis_create_named_event(env, "log");
 }
 
+static int activate_skip_insn(CPUArchState *env, int argc, char **argv)
+{
+    if (argc < 1) {
+        return 0;
+    }
+
+    min_analysis_insn = strtoull(argv[0], NULL, 0);
+    return 1;
+}
+
+static int activate_max_insn(CPUArchState *env, int argc, char **argv)
+{
+    if (argc < 1) {
+        return 0;
+    }
+
+    max_analysis_insn_count = strtoull(argv[0], NULL, 0);
+    return 1;
+}
+
 void init_analysis(void)
 {
     init_call_trace_analysis();
@@ -271,6 +305,9 @@ void init_analysis(void)
     init_mem_trace_analysis();
     init_region_analysis();
     init_security_event_analysis();
+
+    register_analysis_type("skip", "Skip a number of instructions", activate_skip_insn);
+    register_analysis_type("max", "Maximum number of instructions in trace", activate_max_insn);
 }
 
 int is_analysis_enabled(void)

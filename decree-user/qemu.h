@@ -625,6 +625,8 @@ extern int memory_trace_enabled;
 extern int ready_for_trace;
 extern int enable_syscall_trace;
 
+extern uint64_t min_analysis_insn, max_analysis_insn_count;
+
 InsnInstrumentation *add_insn_instrumentation(CPUArchState *env, InsnInstrumentationFilterFn filter,
                                               InsnInstrumentationFn before, InsnInstrumentationFn after,
                                               void *data);
