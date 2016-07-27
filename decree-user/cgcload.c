@@ -141,6 +141,7 @@ static inline void init_thread(struct target_pt_regs *regs,
 {
     regs->esp = infop->start_stack;
     regs->eip = infop->entry;
+    regs->ecx = CGC_MAGIC_PAGE;
 
     /* SVR4/i386 ABI (pages 3-31, 3-32) says that when the program
        starts %edx contains a pointer to a function which might be
